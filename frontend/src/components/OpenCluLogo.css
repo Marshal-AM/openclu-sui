@@ -1,0 +1,20 @@
+.openclu-logo {
+  object-fit: contain;
+  object-position: center center;
+}
+
+.openclu-logo--dark {
+  display: none;
+}
+
+.openclu-logo--light {
+  display: block;
+}
+
+.dark .openclu-logo--dark {
+  display: block;
+}
+
+.dark .openclu-logo--light {
+  display: none;
+}

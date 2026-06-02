@@ -1,0 +1,9 @@
+{
+  "network": "testnet",
+  "rpcUrl": "https://fullnode.testnet.sui.io:443",
+  "deployer": "0xcf2d73f05c9d8f9c2ea92f1aea53d291785af73dc48c74e071cc4c180de2f2d0",
+  "publishedAt": "2026-06-02T13:00:12.630Z",
+  "packageId": "0x49741207d777cb57588d092f900c7e15724fd36f75b238232e9d91ee09b05c20",
+  "publishDigest": "H587yJKDHRWWaDiKddFypET4Q1C7Riy2h5yRRbLdzPg5",
+  "modules": ["skill_access", "skill_marketplace", "skill_record"]
+}

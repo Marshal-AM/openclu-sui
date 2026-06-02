@@ -1,0 +1,90 @@
+/* Match clawsync SyncBoardLayout.css nav-item styling */
+
+.app-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.app-sidebar-nav [data-slot="sidebar-menu-item"] {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+}
+
+.app-sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  max-width: 100%;
+  min-height: 2.75rem;
+  padding: 0.625rem 1rem;
+  border-radius: 1.5rem;
+  color: var(--sidebar-foreground);
+  font-size: 0.9375rem;
+  line-height: 1.25;
+  font-weight: 400;
+  text-decoration: none;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.app-sidebar-nav-item:hover {
+  background-color: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+}
+
+.app-sidebar-nav-item.is-active {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.app-sidebar-nav-item.is-active:hover {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.app-sidebar-nav-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.app-sidebar-nav-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.app-sidebar-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group[data-collapsible="icon"] .app-sidebar-nav {
+  align-items: center;
+}
+
+.group[data-collapsible="icon"] .app-sidebar-nav-item {
+  justify-content: center;
+  width: 2.75rem;
+  max-width: 2.75rem;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  margin-inline: auto;
+}
+
+.group[data-collapsible="icon"] .app-sidebar-nav-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
