@@ -46,11 +46,15 @@ export async function POST(request: Request) {
     const audioPath = await writeUploadBuffer(workDir, `mic-test.${ext}`, buffer);
     const sniffOnDisk = await sniffMediaContainerFromPath(audioPath);
 
+    const levelSnap = form.get("client_level_snapshot");
+    const blobLevels = form.get("client_blob_levels");
     console.log(
       `[test-audio-transcription] ${(audio.size / 1024).toFixed(1)} KB ` +
-        `type=${audio.type} sniff=${sniffOnDisk} client=`,
-      clientDiagnostics,
+        `type=${audio.type} sniff=${sniffOnDisk}`,
     );
+    if (typeof levelSnap === "string") console.log("[test-audio-transcription] live levels", levelSnap);
+    if (typeof blobLevels === "string") console.log("[test-audio-transcription] blob decode", blobLevels);
+    if (clientDiagnostics) console.log("[test-audio-transcription] client", clientDiagnostics);
 
     const result = await transcribeNarrationFile(audioPath, workDir);
 
@@ -63,6 +67,7 @@ export async function POST(request: Request) {
         magicHex: result.magicHex,
         byteSize: result.byteSize,
         attempts: result.attempts,
+        loudness: result.loudness,
       },
     });
   } catch (err) {

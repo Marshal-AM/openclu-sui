@@ -216,6 +216,38 @@ export async function readFileBuffer(path: string): Promise<Buffer> {
   return readFile(path);
 }
 
+export type AudioLoudnessStats = {
+  meanVolumeDb: number | null;
+  maxVolumeDb: number | null;
+  /** True when ffmpeg reports extremely quiet audio (likely noise-only for Whisper). */
+  likelySilent: boolean;
+};
+
+/** Parse ffmpeg volumedetect stderr — useful to confirm Mac uploads contain speech. */
+export async function measureAudioLoudness(mediaPath: string): Promise<AudioLoudnessStats> {
+  const bin = requireFfmpeg();
+  try {
+    await execFileAsync(
+      bin,
+      ["-hide_banner", "-i", mediaPath, "-af", "volumedetect", "-f", "null", "-"],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+  } catch (err: unknown) {
+    const stderr =
+      err && typeof err === "object" && "stderr" in err
+        ? String((err as { stderr: Buffer | string }).stderr)
+        : "";
+    const meanMatch = stderr.match(/mean_volume:\s*([-\d.]+)\s*dB/i);
+    const maxMatch = stderr.match(/max_volume:\s*([-\d.]+)\s*dB/i);
+    const meanVolumeDb = meanMatch ? Number.parseFloat(meanMatch[1]!) : null;
+    const maxVolumeDb = maxMatch ? Number.parseFloat(maxMatch[1]!) : null;
+    const likelySilent =
+      maxVolumeDb !== null && maxVolumeDb < -45 && (meanVolumeDb === null || meanVolumeDb < -50);
+    return { meanVolumeDb, maxVolumeDb, likelySilent };
+  }
+  return { meanVolumeDb: null, maxVolumeDb: null, likelySilent: false };
+}
+
 export async function writeUploadBuffer(dir: string, name: string, data: Buffer): Promise<string> {
   const path = join(dir, name);
   await writeFile(path, data);

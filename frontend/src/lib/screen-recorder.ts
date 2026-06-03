@@ -4,9 +4,18 @@
  *
  * Pattern (matches typical OpenClu-style capture):
  * - Screen recorder: video only (no mic muxed into WebM — unreliable on Windows)
- * - Narration recorder: dedicated mic stream (or tab audio), audio-only WebM
+ * - Narration recorder: dedicated mic stream (or tab audio), audio-only WebM/MP4
  * - No timeslice / no track.clone() — both produce invalid WebM on Edge
+ * - Mac: prefer audio/mp4 + mac-friendly constraints (less aggressive noise suppression)
  */
+
+import {
+  attachMicLevelMonitor,
+  getMicAudioConstraints,
+  isApplePlatform,
+  type MicCaptureProfile,
+  type MicLevelMonitor,
+} from "@/lib/mic-audio-utils";
 
 export type ScreenRecorderStatus =
   | "idle"
@@ -100,24 +109,31 @@ export function getMicRecorderDiagnostics(): MicRecorderDiagnostics {
   return diag;
 }
 
+export type MicTestOptions = {
+  deviceId?: string;
+  profile?: MicCaptureProfile;
+};
+
 export type MicTestSession = {
   micStream: MediaStream;
   recorder: MediaRecorder;
   mimeType: string;
   trackLabel: string;
   trackSettings: MediaTrackSettings;
+  profile: MicCaptureProfile;
+  levelMonitor: MicLevelMonitor;
 };
 
-export async function startMicTestRecording(): Promise<MicTestSession> {
+export async function startMicTestRecording(options?: MicTestOptions): Promise<MicTestSession> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     throw new ScreenRecorderError("Microphone API is not available.", "unsupported");
   }
 
+  const profile =
+    options?.profile ?? (isApplePlatform() ? "mac-friendly" : "default");
+
   const micStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-    },
+    audio: getMicAudioConstraints(profile, options?.deviceId),
     video: false,
   });
 
@@ -127,15 +143,25 @@ export async function startMicTestRecording(): Promise<MicTestSession> {
     throw new ScreenRecorderError("No live microphone track.", "failed");
   }
 
+  if (track.muted) {
+    console.warn("[screen-recorder] mic track reports muted=true");
+  }
+
   const settings = track.getSettings();
+  const levelMonitor = attachMicLevelMonitor(micStream);
   console.info("[screen-recorder] mic test track", {
     label: track.label,
+    muted: track.muted,
+    enabled: track.enabled,
     settings,
+    profile,
+    isApple: isApplePlatform(),
     diagnostics: getMicRecorderDiagnostics(),
   });
 
   const sidecar = startNarrationRecorder(micStream);
   if (!sidecar) {
+    levelMonitor.stop();
     micStream.getTracks().forEach((t) => t.stop());
     throw new ScreenRecorderError("Could not start microphone recorder.", "failed");
   }
@@ -146,16 +172,25 @@ export async function startMicTestRecording(): Promise<MicTestSession> {
     mimeType: sidecar.mimeType,
     trackLabel: track.label,
     trackSettings: settings,
+    profile,
+    levelMonitor,
   };
 }
 
 export async function stopMicTestRecording(
   session: MicTestSession,
-): Promise<{ blob: Blob; diagnostics: RecordingBlobDiagnostics }> {
+): Promise<{
+  blob: Blob;
+  diagnostics: RecordingBlobDiagnostics;
+  levelSnapshot: ReturnType<MicLevelMonitor["getSnapshot"]>;
+}> {
+  const levelSnapshot = session.levelMonitor.getSnapshot();
+  session.levelMonitor.stop();
   const blob = await stopMediaRecorder(session.recorder, session.mimeType);
   session.micStream.getTracks().forEach((t) => t.stop());
   const diagnostics = await describeRecordingBlob(blob);
-  return { blob, diagnostics };
+  console.info("[screen-recorder] mic test stop", { levelSnapshot, diagnostics });
+  return { blob, diagnostics, levelSnapshot };
 }
 
 function resolveGetDisplayMedia():
@@ -251,7 +286,9 @@ const AUDIO_RECORDER_MIME_CANDIDATES = [
 ] as const;
 
 function pickAudioOnlyMimeType(): string | undefined {
-  const candidates = [...AUDIO_RECORDER_MIME_CANDIDATES];
+  const candidates = isApplePlatform()
+    ? (["audio/mp4", ...AUDIO_RECORDER_MIME_CANDIDATES] as const)
+    : AUDIO_RECORDER_MIME_CANDIDATES;
   for (const mimeType of candidates) {
     if (MediaRecorder.isTypeSupported(mimeType)) return mimeType;
   }
@@ -338,10 +375,7 @@ export async function startScreenRecording(): Promise<ScreenRecordingSession> {
   let micDenied = false;
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-      },
+      audio: getMicAudioConstraints(isApplePlatform() ? "mac-friendly" : "default"),
       video: false,
     });
   } catch {

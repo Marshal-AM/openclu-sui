@@ -4,10 +4,12 @@ import { join } from "node:path";
 import Groq from "groq-sdk";
 import {
   extractAudioForTranscription,
+  measureAudioLoudness,
   probeAudioByExtraction,
   probeMediaStreams,
   readJpegAsBase64,
   sniffVideoContainer,
+  type AudioLoudnessStats,
   type VideoContainer,
 } from "@/lib/video-ffmpeg";
 import {
@@ -143,6 +145,7 @@ export type TranscribeNarrationDebugResult = {
   sniff: VideoContainer;
   magicHex: string;
   byteSize: number;
+  loudness: AudioLoudnessStats;
 };
 
 /** Audio-only test / debug (same pipeline as skill narration sidecar). */
@@ -153,6 +156,16 @@ export async function transcribeNarrationFile(
   const buf = await readFile(audioPath);
   const sniff = sniffVideoContainer(buf);
   const magicHex = buf.subarray(0, Math.min(8, buf.length)).toString("hex");
+
+  const loudness = await measureAudioLoudness(audioPath);
+  console.log("[test-audio] loudness", loudness);
+
+  if (loudness.likelySilent) {
+    console.warn(
+      "[test-audio] File is very quiet (mean/max dB low) — Whisper may hallucinate on noise. " +
+        `mean=${loudness.meanVolumeDb} max=${loudness.maxVolumeDb}`,
+    );
+  }
 
   const attempts: TranscribeAttemptLog[] = [];
   const tries: Array<{ label: string; run: () => Promise<Transcript> }> = [
@@ -192,6 +205,7 @@ export async function transcribeNarrationFile(
           sniff,
           magicHex,
           byteSize: buf.length,
+          loudness,
         };
       }
     } catch (err) {
@@ -207,6 +221,7 @@ export async function transcribeNarrationFile(
     sniff,
     magicHex,
     byteSize: buf.length,
+    loudness,
   };
 }
 
