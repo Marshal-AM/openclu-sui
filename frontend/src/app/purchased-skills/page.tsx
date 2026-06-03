@@ -22,6 +22,7 @@ export default function PurchasedSkillsPage() {
   const [decryptListing, setDecryptListing] = useState<DecodedSkillListing | null>(null);
   const [decryptPurchase, setDecryptPurchase] = useState<DecodedSkillPurchase | null>(null);
   const [decryptLoading, setDecryptLoading] = useState(false);
+  const [cacheVersion, setCacheVersion] = useState(0);
 
   const load = useCallback(async () => {
     if (!account?.address) {
@@ -46,7 +47,7 @@ export default function PurchasedSkillsPage() {
     void load();
   }, [load]);
 
-  const openDecrypt = useCallback(
+  const openSkillDialog = useCallback(
     async (listing: DecodedSkillListing, purchase: DecodedSkillPurchase) => {
       setDecryptPurchase(purchase);
 
@@ -119,7 +120,10 @@ export default function PurchasedSkillsPage() {
           <PurchasedSkillCard
             key={entry.purchase.objectId}
             entry={entry}
-            onDecrypt={(listing, purchase) => void openDecrypt(listing, purchase)}
+            walletAddress={account?.address}
+            cacheVersion={cacheVersion}
+            onDecrypt={(listing, purchase) => void openSkillDialog(listing, purchase)}
+            onView={(listing, purchase) => void openSkillDialog(listing, purchase)}
           />
         ))}
       </ul>
@@ -136,6 +140,8 @@ export default function PurchasedSkillsPage() {
           listing={decryptListing}
           purchase={decryptPurchase}
           isCreator={false}
+          persistCache
+          onCached={() => setCacheVersion((v) => v + 1)}
         />
       ) : null}
     </div>

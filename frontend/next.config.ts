@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "100mb",
     },
   },
-  serverExternalPackages: ["sharp", "ffmpeg-static"],
+  serverExternalPackages: ["ffmpeg-static", "@xenova/transformers", "onnxruntime-node"],
   webpack: (config, { webpack: wp }) => {
     config.plugins = [
       ...(config.plugins ?? []),

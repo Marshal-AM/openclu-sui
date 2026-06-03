@@ -243,7 +243,7 @@ export default function RecordPage() {
           downloadRecordingBase64(result.recording.base64, result.recording.mimeType, slug);
         } else if (result.recording?.tooLarge) {
           toast.info("Recording download skipped", {
-            description: `Recording is ${(result.recording.byteLength / (1024 * 1024)).toFixed(1)} MB — SKILL.md was still generated. Video is not stored on Walrus when you publish.`,
+            description: `Recording is ${(result.recording.byteLength / (1024 * 1024)).toFixed(1)} MB — SKILL.md was still generated.`,
           });
         }
         setSkillMd(result.skillMd);

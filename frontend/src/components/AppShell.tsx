@@ -34,8 +34,8 @@ import { useTheme } from "@/components/theme/theme-provider";
 const NAV = [
   { href: "/record", label: "Record", icon: PenToolIcon },
   { href: "/marketplace", label: "Marketplace", icon: ShoppingBagIcon },
-  { href: "/purchased-skills", label: "My Purchased Skills", icon: ReceiptIcon },
-  { href: "/create-agent", label: "Create agent", icon: BotIcon },
+  { href: "/purchased-skills", label: "Purchased Skills", icon: ReceiptIcon },
+  { href: "/create-agent", label: "Agent lab", icon: BotIcon },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

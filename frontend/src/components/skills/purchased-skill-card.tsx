@@ -3,6 +3,7 @@
 import type { DecodedSkillListing, DecodedSkillPurchase } from "@/lib/sui/queries";
 import type { PurchasedSkillEntry } from "@/app/api/skills/purchased/route";
 import { catalogCardToListingLike } from "@/lib/supabase/catalog-types";
+import { hasCachedDecryptedSkill } from "@/lib/decrypted-skill-cache";
 import { SEAL_IDENTITY_BYTE_LENGTH } from "@/lib/seal/identity";
 import { Button } from "@/components/ui/button";
 
@@ -14,10 +15,21 @@ function formatSui(mist: string): string {
 
 export type PurchasedSkillCardProps = {
   entry: PurchasedSkillEntry;
+  walletAddress: string | undefined;
+  cacheVersion: number;
   onDecrypt: (listing: DecodedSkillListing, purchase: DecodedSkillPurchase) => void;
+  onView: (listing: DecodedSkillListing, purchase: DecodedSkillPurchase) => void;
 };
 
-export function PurchasedSkillCard({ entry, onDecrypt }: PurchasedSkillCardProps) {
+export function PurchasedSkillCard({
+  entry,
+  walletAddress,
+  cacheVersion,
+  onDecrypt,
+  onView,
+}: PurchasedSkillCardProps) {
+  void cacheVersion;
+
   const { purchase, catalog } = entry;
   const title = catalog?.title ?? purchase.skillSlug;
   const description =
@@ -55,6 +67,8 @@ export function PurchasedSkillCard({ entry, onDecrypt }: PurchasedSkillCardProps
           sealIdentity: purchase.sealIdentity,
         };
 
+  const isCached = hasCachedDecryptedSkill(walletAddress, purchase.objectId);
+
   return (
     <li className="rounded-xl border bg-card p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -77,9 +91,13 @@ export function PurchasedSkillCard({ entry, onDecrypt }: PurchasedSkillCardProps
               type="button"
               size="sm"
               variant="secondary"
-              onClick={() => onDecrypt(listingForDecrypt, purchase)}
+              onClick={() =>
+                isCached
+                  ? onView(listingForDecrypt, purchase)
+                  : onDecrypt(listingForDecrypt, purchase)
+              }
             >
-              Decrypt & view
+              {isCached ? "View" : "Decrypt & view"}
             </Button>
           ) : (
             <p className="text-xs text-amber-600">Cannot decrypt (no Seal)</p>

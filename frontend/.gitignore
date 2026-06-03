@@ -20,6 +20,9 @@
 # production
 /build
 
+# transformers model cache
+.cache/
+
 # misc
 .DS_Store
 *.pem

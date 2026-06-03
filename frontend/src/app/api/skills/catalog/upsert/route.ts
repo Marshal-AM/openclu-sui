@@ -1,6 +1,9 @@
 import type { SkillCatalogUpsertInput } from "@/lib/supabase/catalog-types";
 import { isSupabaseConfigured, upsertSkillCatalogRow } from "@/lib/supabase/server";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) {
     return Response.json(

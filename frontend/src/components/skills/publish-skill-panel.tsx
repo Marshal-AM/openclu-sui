@@ -122,7 +122,7 @@ export function PublishSkillPanel(props: PublishSkillPanelProps) {
       );
 
       logger.log("walrus", "Uploading Seal-encrypted skill bundle to Walrus", {
-        detail: `${encrypted.encryptedBundle.length} bytes (video is not stored on Walrus)`,
+        detail: `${encrypted.encryptedBundle.length} bytes`,
       });
 
       const body: PublishPrepareRequest = {

@@ -1,8 +1,7 @@
 import { createReadStream } from "node:fs";
 import Groq from "groq-sdk";
-import { probeMediaStreams } from "@/lib/video-ffmpeg";
+import { probeMediaStreams, readJpegAsBase64 } from "@/lib/video-ffmpeg";
 import { mergeSkillMd } from "@/lib/skill-md";
-import sharp from "sharp";
 import type { FrameAnnotation, Transcript } from "@/lib/skill-md";
 import type { FrameManifestEntry } from "@/lib/video-ffmpeg";
 
@@ -72,24 +71,7 @@ function getClient(): Groq {
 }
 
 async function encodeFrameJpeg(path: string): Promise<string> {
-  let pipeline = sharp(path);
-  let quality = 80;
-
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const buf = await pipeline.jpeg({ quality }).toBuffer();
-    const sizeKb = buf.length / 1024;
-    if (sizeKb <= MAX_FRAME_KB || quality < 30) {
-      return buf.toString("base64");
-    }
-    const meta = await sharp(path).metadata();
-    const w = meta.width ?? 1920;
-    const h = meta.height ?? 1080;
-    pipeline = sharp(path).resize(Math.round(w * 0.8), Math.round(h * 0.8));
-    quality = Math.max(quality - 10, 30);
-  }
-
-  const buf = await sharp(path).jpeg({ quality: 30 }).toBuffer();
-  return buf.toString("base64");
+  return readJpegAsBase64(path, MAX_FRAME_KB);
 }
 
 export async function transcribeAudio(audioPath: string): Promise<Transcript> {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCurrentAccount, useSignPersonalMessage, useSuiClient } from "@mysten/dapp-kit";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -13,6 +13,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { createSealSessionKey } from "@/lib/seal/client";
 import { decryptSkillBundleFromWalrus } from "@/lib/seal/decrypt-skill";
+import {
+  getCachedDecryptedSkill,
+  setCachedDecryptedSkill,
+} from "@/lib/decrypted-skill-cache";
 import { SEAL_IDENTITY_BYTE_LENGTH } from "@/lib/seal/identity";
 import type { DecodedSkillListing, DecodedSkillPurchase } from "@/lib/sui/queries";
 
@@ -22,6 +26,12 @@ type SkillDecryptDialogProps = {
   listing: DecodedSkillListing;
   purchase?: DecodedSkillPurchase | null;
   isCreator?: boolean;
+  /** When true (purchased-skills page), persist decrypted markdown in localStorage. */
+  persistCache?: boolean;
+  /** Called after a successful decrypt that was persisted. */
+  onCached?: () => void;
+  /** Called after a fresh decrypt completes (including when not using cache). */
+  onDecrypted?: () => void;
 };
 
 export function SkillDecryptDialog({
@@ -30,6 +40,9 @@ export function SkillDecryptDialog({
   listing,
   purchase,
   isCreator,
+  persistCache,
+  onCached,
+  onDecrypted,
 }: SkillDecryptDialogProps) {
   const account = useCurrentAccount();
   const client = useSuiClient();
@@ -37,6 +50,34 @@ export function SkillDecryptDialog({
   const [loading, setLoading] = useState(false);
   const [skillMd, setSkillMd] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadedFromCache, setLoadedFromCache] = useState(false);
+
+  const purchaseId = purchase?.objectId;
+  const walletAddress = account?.address;
+
+  useEffect(() => {
+    if (!open) {
+      setSkillMd(null);
+      setError(null);
+      setLoading(false);
+      setLoadedFromCache(false);
+      return;
+    }
+
+    if (persistCache && purchaseId && walletAddress) {
+      const cached = getCachedDecryptedSkill(walletAddress, purchaseId);
+      if (cached) {
+        setSkillMd(cached.skillMd);
+        setError(null);
+        setLoadedFromCache(true);
+        return;
+      }
+    }
+
+    setSkillMd(null);
+    setError(null);
+    setLoadedFromCache(false);
+  }, [open, persistCache, purchaseId, walletAddress]);
 
   const decrypt = useCallback(async () => {
     const address = account?.address;
@@ -75,7 +116,17 @@ export function SkillDecryptDialog({
         listingObjectId: isCreator ? listing.objectId : undefined,
       });
 
-      setSkillMd(bundle.skillMd ?? "(No skill markdown in bundle)");
+      const md = bundle.skillMd ?? "(No skill markdown in bundle)";
+      setSkillMd(md);
+
+      if (persistCache && purchase?.objectId) {
+        setCachedDecryptedSkill(address, purchase.objectId, md, {
+          title: listing.title,
+          skillSlug: listing.skillSlug,
+        });
+        onCached?.();
+      }
+      onDecrypted?.();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Decryption failed.";
       setError(message);
@@ -83,7 +134,17 @@ export function SkillDecryptDialog({
     } finally {
       setLoading(false);
     }
-  }, [account?.address, client, isCreator, listing, purchase, signPersonalMessage]);
+  }, [
+    account?.address,
+    client,
+    isCreator,
+    listing,
+    onCached,
+    onDecrypted,
+    persistCache,
+    purchase,
+    signPersonalMessage,
+  ]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -91,7 +152,11 @@ export function SkillDecryptDialog({
         <DialogHeader>
           <DialogTitle>{listing.title}</DialogTitle>
           <DialogDescription>
-            Encrypted skill content — decrypt with Seal using your wallet session.
+            {skillMd
+              ? loadedFromCache
+                ? "Decrypted skill content (saved in this browser)."
+                : "Decrypted skill content."
+              : "Encrypted skill content — decrypt with Seal using your wallet session."}
           </DialogDescription>
         </DialogHeader>
 

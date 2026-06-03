@@ -1,3 +1,4 @@
+import { embedListing } from "@/lib/embeddings/skill-embedder";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { SkillCatalogRow } from "@/lib/supabase/catalog-types";
 
@@ -110,9 +111,18 @@ export async function upsertSkillCatalogRow(
     updated_at: new Date().toISOString(),
   };
 
+  let embedding: number[] | undefined;
+  try {
+    embedding = await embedListing(input.title, input.skillSlug, input.description);
+  } catch (err) {
+    console.error("[upsertSkillCatalogRow] embedding failed:", err);
+  }
+
+  const payload = embedding ? { ...row, embedding } : row;
+
   const { data, error } = await client
     .from("skill_catalog")
-    .upsert(row, { onConflict: "listing_id" })
+    .upsert(payload as Record<string, unknown>, { onConflict: "listing_id" })
     .select()
     .single();
 

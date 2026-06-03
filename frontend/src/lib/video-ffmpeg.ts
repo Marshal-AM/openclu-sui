@@ -145,3 +145,36 @@ export async function writeUploadBuffer(dir: string, name: string, data: Buffer)
   await writeFile(path, data);
   return path;
 }
+
+/** Read a browser-captured JPEG and base64-encode it, recompressing with ffmpeg if too large. */
+export async function readJpegAsBase64(path: string, maxKb: number): Promise<string> {
+  let buf = await readFile(path);
+  if (buf.length / 1024 <= maxKb) {
+    return buf.toString("base64");
+  }
+
+  const tmpOut = join(tmpdir(), `openclu-jpeg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`);
+  try {
+    let scale = 0.85;
+    let qv = 4;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await runFfmpeg([
+        "-y",
+        "-i",
+        path,
+        "-vf",
+        `scale='min(${Math.max(320, Math.round(1920 * scale))},iw)':-2`,
+        "-q:v",
+        String(Math.min(qv, 20)),
+        tmpOut,
+      ]);
+      buf = await readFile(tmpOut);
+      if (buf.length / 1024 <= maxKb || qv >= 18) break;
+      scale *= 0.85;
+      qv += 2;
+    }
+    return buf.toString("base64");
+  } finally {
+    await rm(tmpOut, { force: true }).catch(() => undefined);
+  }
+}
