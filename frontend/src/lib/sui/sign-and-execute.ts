@@ -13,7 +13,10 @@ export type SignAndExecuteResult = {
   method: "wallet_execute" | "sign_then_rpc";
 };
 
-const MIN_GAS_MIST = 50_000_000n; // 0.05 SUI
+/** Soft gas buffer for warnings only — actual gas is usually much lower. */
+const GAS_BUFFER_MIST = 5_000_000n; // 0.005 SUI
+
+const SUI_COIN_TYPE = "0x2::sui::SUI";
 
 /** Turn wallet / RPC failures into actionable messages (wallets often say only "Unexpected error"). */
 export function formatWalletSignError(err: unknown, context?: { network?: string }): string {
@@ -25,12 +28,22 @@ export function formatWalletSignError(err: unknown, context?: { network?: string
         ? String((err as { message: unknown }).message)
         : String(err);
 
+  // Keep our balance / network pre-check messages intact.
+  if (/App sees 0 SUI|listing price on Sui|Wallet balance is low/i.test(raw)) {
+    return raw;
+  }
+
   if (/user rejected|rejected from user|cancelled|canceled/i.test(raw)) {
     return "Transaction was cancelled in the wallet.";
   }
 
   if (/insufficient|not enough|gas/i.test(raw)) {
-    return `Not enough SUI for gas on ${net}. Get testnet SUI from the faucet, then retry.`;
+    return (
+      `Not enough SUI on Sui ${net} for this transaction. ` +
+      `If your wallet shows a balance elsewhere, switch the wallet to ${net} (testnet and mainnet are separate). ` +
+      `${net === "testnet" ? "Get testnet SUI from a faucet if needed. " : ""}` +
+      `Original: ${raw}`
+    );
   }
 
   if (/wrong chain|chain mismatch|invalid chain|not supported on this chain/i.test(raw)) {
@@ -127,6 +140,28 @@ function formatSuiAmount(mist: bigint): string {
   return `${(Number(mist) / 1e9).toFixed(4)} SUI`;
 }
 
+function zeroBalanceHint(network: string, owner: string): string {
+  return (
+    `App sees 0 SUI on Sui ${network} for ${owner.slice(0, 8)}…${owner.slice(-4)}. ` +
+    `If your wallet shows a balance, switch the wallet to Sui ${network} — ` +
+    `testnet and mainnet balances are separate.`
+  );
+}
+
+/** Query native SUI balance via app RPC; null if the RPC call failed. */
+export async function queryWalletSuiBalance(
+  client: SuiClient,
+  owner: string,
+): Promise<bigint | null> {
+  try {
+    const { totalBalance } = await client.getBalance({ owner, coinType: SUI_COIN_TYPE });
+    return BigInt(totalBalance);
+  } catch (err) {
+    console.warn("[wallet] getBalance failed:", err);
+    return null;
+  }
+}
+
 /** Wallet-standard account must include the app's Sui chain (e.g. sui:testnet). */
 export function assertWalletAccountChain(account: WalletAccount, network: string): void {
   const expected = `sui:${network}` as `${string}:${string}`;
@@ -138,43 +173,67 @@ export function assertWalletAccountChain(account: WalletAccount, network: string
   }
 }
 
-/** Ensure wallet address has gas on the app RPC before signing. */
+/**
+ * Light gas check before signing. Only blocks when RPC reports 0 balance.
+ * Skips when RPC is unavailable so the wallet can still attempt the tx.
+ */
 export async function assertWalletGasBalance(
   client: SuiClient,
   owner: string,
-  minMist = MIN_GAS_MIST,
+  network: string,
 ): Promise<{ totalMist: bigint }> {
-  const { totalBalance } = await client.getBalance({ owner });
-  const totalMist = BigInt(totalBalance);
-  if (totalMist < minMist) {
-    throw new Error(
-      `Wallet balance is low (${formatSuiAmount(totalMist)}). ` +
-        `Need at least ${formatSuiAmount(minMist)} on this network for gas.`,
+  const balance = await queryWalletSuiBalance(client, owner);
+  if (balance === null) {
+    console.warn("[wallet] Skipping gas pre-check (RPC unavailable).");
+    return { totalMist: 0n };
+  }
+  if (balance === 0n) {
+    throw new Error(zeroBalanceHint(network, owner));
+  }
+  if (balance < GAS_BUFFER_MIST) {
+    console.warn(
+      `[wallet] Low SUI on ${network} (${formatSuiAmount(balance)}); wallet may still succeed.`,
     );
   }
-  return { totalMist };
+  return { totalMist: balance };
 }
 
-/** Purchase splits listing price from the gas coin — balance must cover both. */
+/**
+ * Purchase splits listing price from the gas coin.
+ * Only blocks when balance is below the listing price (not price + a large gas reserve).
+ */
 export async function assertWalletBalanceForPurchase(
   client: SuiClient,
   owner: string,
   priceMist: bigint,
+  network: string,
 ): Promise<{ totalMist: bigint }> {
   if (priceMist <= 0n) {
     throw new Error("Listing price is invalid.");
   }
-  const required = priceMist + MIN_GAS_MIST;
-  const { totalBalance } = await client.getBalance({ owner });
-  const totalMist = BigInt(totalBalance);
-  if (totalMist < required) {
+
+  const balance = await queryWalletSuiBalance(client, owner);
+  if (balance === null) {
+    console.warn("[wallet] Skipping purchase balance pre-check (RPC unavailable).");
+    return { totalMist: 0n };
+  }
+  if (balance === 0n) {
+    throw new Error(zeroBalanceHint(network, owner));
+  }
+  if (balance < priceMist) {
     throw new Error(
-      `Not enough SUI to buy this skill. Need ${formatSuiAmount(required)} ` +
-        `(${formatSuiAmount(priceMist)} price + ${formatSuiAmount(MIN_GAS_MIST)} gas). ` +
-        `Balance: ${formatSuiAmount(totalMist)}.`,
+      `Not enough SUI for the listing price on Sui ${network}. ` +
+        `Need ${formatSuiAmount(priceMist)}, app sees ${formatSuiAmount(balance)}. ` +
+        `If your wallet shows more, switch the wallet to ${network}.`,
     );
   }
-  return { totalMist };
+  if (balance < priceMist + GAS_BUFFER_MIST) {
+    console.warn(
+      `[wallet] Balance ${formatSuiAmount(balance)} is tight for ` +
+        `${formatSuiAmount(priceMist)} + gas; proceeding to wallet sign.`,
+    );
+  }
+  return { totalMist: balance };
 }
 
 /** Pull a digest out of Sui RPC errors like TransactionDigest(abc123...). */

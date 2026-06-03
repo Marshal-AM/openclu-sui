@@ -1,4 +1,8 @@
-import { getTatumApiKey, getTatumDirectRpcUrl } from "@/lib/sui/tatum-rpc";
+import {
+  getTatumApiKey,
+  getTatumDirectRpcUrl,
+  type SuiNetwork,
+} from "@/lib/sui/tatum-rpc";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,7 +65,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const target = getTatumDirectRpcUrl();
+  const { searchParams } = new URL(request.url);
+  const rawNet = searchParams.get("network")?.trim();
+  const network: SuiNetwork =
+    rawNet === "mainnet" || rawNet === "testnet" || rawNet === "devnet"
+      ? rawNet
+      : "testnet";
+  const target = getTatumDirectRpcUrl(network);
   const body = await request.text();
 
   let upstream: Response;

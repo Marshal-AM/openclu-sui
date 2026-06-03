@@ -39,10 +39,11 @@ export function getTatumDirectRpcUrl(network?: SuiNetwork): string {
 
 /** RPC URL for SuiClient: same-origin proxy in the browser, direct Tatum on the server. */
 export function getSuiRpcUrl(network?: SuiNetwork): string {
+  const net = network ?? resolveSuiNetwork();
   if (isBrowser()) {
-    return BROWSER_RPC_PROXY_PATH;
+    return `${BROWSER_RPC_PROXY_PATH}?network=${encodeURIComponent(net)}`;
   }
-  return getTatumDirectRpcUrl(network);
+  return getTatumDirectRpcUrl(net);
 }
 
 export function createSuiRpcTransport(network?: SuiNetwork): SuiHTTPTransport {

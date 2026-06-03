@@ -183,7 +183,7 @@ export function PublishSkillPanel(props: PublishSkillPanelProps) {
         );
       }
 
-      const { totalMist } = await assertWalletGasBalance(client, address);
+      const { totalMist } = await assertWalletGasBalance(client, address, appNetwork);
       logger.log("wallet", "Pre-sign checks passed", {
         detail: `network=${network} balance=${(Number(totalMist) / 1e9).toFixed(4)} SUI chain=sui:${network}`,
       });
@@ -442,6 +442,7 @@ export function PurchaseSkillButton({
         client,
         account.address,
         priceMist,
+        appNetwork,
       );
       console.info(
         `[purchase] pre-sign ok network=${appNetwork} balance=${(Number(totalMist) / 1e9).toFixed(4)} SUI price=${(Number(priceMist) / 1e9).toFixed(4)} SUI wallet=${currentWallet.name}`,
