@@ -47,6 +47,18 @@ export function parseExtraTags(text: string): string[] {
     .filter(Boolean);
 }
 
+/** Form title/description/triggers are often placeholders during demo recordings. */
+export function briefLooksLikePlaceholder(brief: SkillBriefInput): boolean {
+  const title = brief.title.trim().toLowerCase();
+  const description = brief.description.trim().toLowerCase();
+  const triggers = brief.triggers.trim().toLowerCase();
+  if (!title || !description) return false;
+  if (title === description) return true;
+  if (triggers && (triggers === title || triggers === description)) return true;
+  if (description.length < 48 && title === description) return true;
+  return false;
+}
+
 export function buildDraftSkillMd(brief: SkillBriefInput): string {
   const triggers = parseTriggers(brief.triggers);
   const extraTags = parseExtraTags(brief.extraTags);
@@ -79,21 +91,74 @@ function parseFrontmatterBlock(md: string): { fm: string; body: string } | null 
   return { fm: match[1]!, body: match[2]!.trim() };
 }
 
-function pickDescription(draftFm: string, generatedFm: string): string {
-  const fromGen = generatedFm.match(/^description:\s*(.+)$/m)?.[1]?.trim();
-  if (fromGen && fromGen.length > 40 && !/involves the comments from a pr/i.test(fromGen)) {
-    return fromGen;
+function pickDescription(
+  draftFm: string,
+  generatedFm: string,
+  brief: SkillBriefInput,
+): string {
+  const fromGen = generatedFm.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? "";
+  const fromDraft = draftFm.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? "";
+  const placeholder = briefLooksLikePlaceholder(brief);
+
+  if (fromGen && fromGen.length > 24 && !/involves the comments from a pr/i.test(fromGen)) {
+    if (placeholder || fromGen.toLowerCase() !== fromDraft.toLowerCase()) {
+      return fromGen;
+    }
   }
-  return draftFm.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? fromGen ?? "";
+  if (!placeholder && fromDraft) return fromDraft;
+  return fromGen || fromDraft;
 }
 
-export function mergeSkillMd(draftMd: string, generatedMd: string): string {
+/** Generated SKILL.md echoed the form draft instead of the recording. */
+export function skillBodyLooksLikePlaceholderEcho(
+  body: string,
+  brief: SkillBriefInput,
+  transcript: Transcript,
+): boolean {
+  const spoken = transcript.full_text.trim();
+  if (spoken.length < 60) return false;
+
+  const title = brief.title.trim().toLowerCase();
+  const description = brief.description.trim().toLowerCase();
+  const overview =
+    body.match(/##\s*Overview\s*\n+([\s\S]*?)(?=\n##\s|\n---|\z)/i)?.[1]?.trim().toLowerCase() ?? "";
+
+  if (briefLooksLikePlaceholder(brief)) {
+    if (overview === description || overview === title) return true;
+    if (body.trim().toLowerCase() === description) return true;
+  }
+
+  const bodyLower = body.toLowerCase();
+  const spokenHints = ["publish", "trigger", "description", "expertise", "record a skill", "opencube", "openclu"];
+  const spokenHasHints = spokenHints.some((h) => spoken.toLowerCase().includes(h));
+  const bodyHasHints = spokenHints.some((h) => bodyLower.includes(h));
+  if (spokenHasHints && !bodyHasHints && body.length < 900) return true;
+
+  return false;
+}
+
+export function mergeSkillMd(
+  draftMd: string,
+  generatedMd: string,
+  brief?: SkillBriefInput,
+): string {
   const draft = parseFrontmatterBlock(draftMd);
   const generated = parseFrontmatterBlock(generatedMd);
   if (!draft) return generatedMd;
   if (!generated) return draftMd;
 
-  const description = pickDescription(draft.fm, generated.fm);
+  const description = pickDescription(
+    draft.fm,
+    generated.fm,
+    brief ?? {
+      skillSlug: "",
+      title: "",
+      description: draft.fm.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? "",
+      triggers: "",
+      extraTags: "",
+      expertiseSource: "",
+    },
+  );
   const descYaml = description.includes(":") || description.includes('"')
     ? `"${description.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
     : description;

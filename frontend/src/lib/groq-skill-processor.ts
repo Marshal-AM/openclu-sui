@@ -7,7 +7,12 @@ import {
   probeMediaStreams,
   readJpegAsBase64,
 } from "@/lib/video-ffmpeg";
-import { mergeSkillMd, type SkillBriefInput } from "@/lib/skill-md";
+import {
+  briefLooksLikePlaceholder,
+  mergeSkillMd,
+  skillBodyLooksLikePlaceholderEcho,
+  type SkillBriefInput,
+} from "@/lib/skill-md";
 import type { FrameAnnotation, Transcript } from "@/lib/skill-md";
 import type { FrameManifestEntry } from "@/lib/video-ffmpeg";
 
@@ -17,63 +22,69 @@ const FRAMES_PER_BATCH = 4;
 const MAX_FRAME_KB = 3500;
 
 const SKILL_EXTRACTION_PROMPT = `
-You extract SKILL.md for an AI agent from a screen recording where a human expert demonstrates concrete practices (often code review comments, fixes, or walkthroughs).
+You extract SKILL.md for an AI agent from a screen recording (code review, product walkthrough, or workflow demo).
 
-Recording intent (from the contributor — use as context only; do NOT copy verbatim if the demo shows more specific detail):
-Title: {brief_title}
-Contributor description: {brief_description}
+{brief_context}
+
+SOURCE PRIORITY (strict):
+1. **Audio transcript** — primary. Every step, rule, and recommendation the expert SPOKE must appear in the skill.
+2. **Screen frames** — UI labels, buttons, page names, field names, and on-screen instructions only.
+3. **Form metadata** — NEVER copy title/description/triggers from the brief if they are placeholder text repeated on screen. Those are draft form values, not the skill.
 
 CRITICAL RULES:
-- The skill must capture SPECIFIC practices, rules, and examples shown or spoken in the recording — not a generic tutorial.
-- If the expert left PR/code review comments, lists each one with file/line when visible, the issue, and the recommended fix.
-- If the transcript or frames mention HTML, CSS, accessibility, tables, semantic elements, etc., those MUST appear as explicit rules in the skill body.
-- Do NOT invent generic "navigate to GitHub" steps unless the demo literally focused on navigation with no technical substance.
-- Prefer quoting or closely paraphrasing the expert's comments from the transcript and on-screen text.
+- Write the skill from what was **demonstrated and narrated**, not from repeated form filler visible in frames.
+- For walkthroughs: capture the **procedure** (what to fill in, in what order, what "good" looks like) from the transcript.
+- For PR/code review: list each comment with file:line, issue, and fix.
+- YAML \`description:\` must summarize the **taught capability** (e.g. "How to record and publish an OpenClu skill from the Contribute Data page"), never repeat the draft title alone.
+- \`## Overview\` must be 2–4 sentences derived from the transcript, not a copy of the form title/description.
+- Include a \`## Steps\` section with numbered steps from the narration.
+- Omit empty sections (e.g. skip "Demonstrated examples" if there was no code review).
 
 Required SKILL.md structure (after YAML frontmatter):
 ---
-name: <kebab-case>
-description: <one sentence summarizing the SPECIFIC practices taught, not the recording process>
-triggers: ...
+name: {skill_slug}
+description: <one sentence — what the agent learns to do, from the demo>
+triggers: <infer 3–6 sensible triggers from the demo, or keep brief triggers if substantive>
 expertise_source: human_recording
-recorded_at: <ISO date>
+recorded_at: {recorded_at}
 ---
 
 ## Overview
-2-3 sentences on the specific expertise being transferred.
-
-## Rules and standards (from demonstration)
-Bulleted list of every concrete rule/practice demonstrated. Each bullet: **Rule** — why it matters. Include file:line or code examples when available.
-
-## Demonstrated examples
-For each review comment or fix shown: location (file:line), what was wrong, what to do instead (use the expert's wording when possible).
-
-## Prerequisites
-Only what is actually needed for this skill.
-
 ## Steps
-Numbered steps an agent should follow to APPLY these rules (not vague "review the PR" only).
-
+## Rules and standards (from demonstration)  (if applicable)
+## Demonstrated examples  (if code/PR comments shown)
+## Prerequisites
 ## Decision branches
-Real decision points from the demo.
-
 ## Common mistakes
-Mistakes the expert called out or corrected.
-
 ## Tools and context
-Apps/sites actually visible (e.g. GitHub PR, VS Code).
-
 ## Notes
-Tacit knowledge from audio or screen text not covered above.
 
 ---
 
-Full audio transcript (may be empty if no mic/system audio):
+AUDIO TRANSCRIPT (PRIMARY — use this):
 {transcript}
 
-Screen capture analysis (includes visible on-screen text when captured):
+SCREEN FRAMES (secondary — UI context; ignore repeated draft form values):
 {frame_annotations}
 
+Respond ONLY with complete SKILL.md starting with ---.
+`;
+
+const SKILL_EXTRACTION_STRICT_RETRY = `
+Your previous SKILL.md only repeated the contributor's draft form text instead of the recording.
+
+Rewrite the skill using ONLY the audio transcript and UI context below.
+- Do NOT use these as skill content: title "{brief_title}", description "{brief_description}".
+- The expert said: use the transcript below for all steps and overview content.
+- Minimum: Overview (2+ sentences from speech) + Steps (numbered, from speech) + Tools and context.
+
+AUDIO TRANSCRIPT:
+{transcript}
+
+SCREEN FRAMES:
+{frame_annotations}
+
+YAML name must be: {skill_slug}
 Respond ONLY with complete SKILL.md starting with ---.
 `;
 
@@ -133,12 +144,14 @@ export async function annotateFrames(
       {
         type: "text",
         text:
-          "You analyze screen-recording frames of an expert demonstrating a skill (often a PR/code review). " +
+          "You analyze screen-recording frames of an expert demonstrating a skill. " +
           "For EACH frame, extract:\n" +
-          "- app: application/site (e.g. GitHub, VS Code)\n" +
-          "- action: what the user is doing\n" +
-          "- details: summary of the screen\n" +
-          "- visible_text: ALL readable text verbatim or near-verbatim (PR review comments, code, labels). Use empty string if none.\n" +
+          "- app: application/site (e.g. OpenClu, GitHub, VS Code)\n" +
+          "- action: what the user is doing on this screen\n" +
+          "- details: one sentence — page/section and intent (not repeated filler)\n" +
+          "- visible_text: UI labels, headings, button names, field LABELS, and non-repetitive on-screen hints. " +
+          "Do NOT dump entire form values the user typed (title/description text they are entering). " +
+          "Do include section names like 'Contribute Data', field labels like 'Title', 'Description', 'Triggers'.\n" +
           "- file_references: file paths and line numbers visible (e.g. index.html:23-52). Use empty string if none.\n\n" +
           'Return ONLY a JSON array: [{"frame":0,"app":"...","action":"...","details":"...","visible_text":"...","file_references":"..."}]',
       },
@@ -199,6 +212,56 @@ export async function annotateFrames(
   return annotations;
 }
 
+function sanitizeVisibleTextForExtraction(text: string, brief: SkillBriefInput): string {
+  const noise = new Set(
+    [
+      brief.title,
+      brief.description,
+      brief.skillSlug,
+      brief.triggers,
+      brief.expertiseSource,
+      ...brief.triggers.split("\n"),
+    ]
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const kept: string[] = [];
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    const valueOnly = lower.replace(/^(title|description|triggers|expertise source|generated slug):\s*/i, "").trim();
+    if (noise.has(lower) || noise.has(valueOnly)) continue;
+    if (/^openclu skill record/i.test(line) && line.length < 80) continue;
+    kept.push(line);
+  }
+  return kept.join("\n");
+}
+
+function compactFrameAnnotationsForExtraction(
+  annotations: FrameAnnotation[],
+  brief: SkillBriefInput,
+): FrameAnnotation[] {
+  const out: FrameAnnotation[] = [];
+  let lastSig = "";
+
+  for (const ann of annotations) {
+    const visible = sanitizeVisibleTextForExtraction(ann.visible_text ?? "", brief);
+    const sig = `${ann.app}|${ann.action}|${visible}`;
+    if (sig === lastSig && out.length > 0) continue;
+    lastSig = sig;
+    out.push({
+      ...ann,
+      visible_text: visible,
+      details:
+        ann.details?.length && ann.details.length < 200
+          ? ann.details
+          : ann.action || "Screen activity",
+    });
+  }
+  return out;
+}
+
 function formatFrameAnnotationsForPrompt(annotations: FrameAnnotation[]): string {
   if (!annotations.length) return "(no frame annotations available)";
   return annotations
@@ -230,17 +293,54 @@ function formatTranscriptForPrompt(transcript: Transcript): string {
     : "(no audio transcript — rely on screen visible_text from frames)";
 }
 
-export async function extractSkillMd(
+function buildBriefContextBlock(brief: SkillBriefInput): string {
+  if (briefLooksLikePlaceholder(brief)) {
+    return (
+      "CONTRIBUTOR FORM (PLACEHOLDER — do NOT copy into skill body or description):\n" +
+      `Draft title: "${brief.title.trim()}"\n` +
+      `Draft description: "${brief.description.trim()}"\n` +
+      "The expert narrated the real skill in the audio transcript below."
+    );
+  }
+  return (
+    "Contributor intent (context only — prefer transcript if more detailed):\n" +
+    `Title: ${brief.title.trim()}\n` +
+    `Description: ${brief.description.trim()}`
+  );
+}
+
+function buildExtractionPrompt(
   transcript: Transcript,
   frameAnnotations: FrameAnnotation[],
   brief: SkillBriefInput,
+  strict = false,
+): string {
+  const compactFrames = compactFrameAnnotationsForExtraction(frameAnnotations, brief);
+  const recordedAt = brief.recordedAt ?? new Date().toISOString();
+
+  if (strict) {
+    return SKILL_EXTRACTION_STRICT_RETRY.replace("{brief_title}", brief.title.trim())
+      .replace("{brief_description}", brief.description.trim())
+      .replace("{transcript}", formatTranscriptForPrompt(transcript))
+      .replace("{frame_annotations}", formatFrameAnnotationsForPrompt(compactFrames))
+      .replace("{skill_slug}", brief.skillSlug.trim());
+  }
+
+  return SKILL_EXTRACTION_PROMPT.replace("{brief_context}", buildBriefContextBlock(brief))
+    .replace("{transcript}", formatTranscriptForPrompt(transcript))
+    .replace("{frame_annotations}", formatFrameAnnotationsForPrompt(compactFrames))
+    .replace("{skill_slug}", brief.skillSlug.trim())
+    .replace("{recorded_at}", recordedAt);
+}
+
+async function runSkillExtraction(
+  transcript: Transcript,
+  frameAnnotations: FrameAnnotation[],
+  brief: SkillBriefInput,
+  strict: boolean,
 ): Promise<string> {
   const client = getClient();
-
-  const prompt = SKILL_EXTRACTION_PROMPT.replace("{brief_title}", brief.title.trim())
-    .replace("{brief_description}", brief.description.trim())
-    .replace("{transcript}", formatTranscriptForPrompt(transcript))
-    .replace("{frame_annotations}", formatFrameAnnotationsForPrompt(frameAnnotations));
+  const prompt = buildExtractionPrompt(transcript, frameAnnotations, brief, strict);
 
   const response = await client.chat.completions.create({
     model: TEXT_MODEL,
@@ -248,16 +348,33 @@ export async function extractSkillMd(
       {
         role: "system",
         content:
-          "You extract concrete, actionable agent skills from recordings. Never output generic filler. " +
-          "Always include specific rules and examples from the transcript and on-screen text.",
+          "You extract concrete, actionable agent skills from screen recordings. " +
+          "The spoken audio transcript is the primary source. Never echo draft form placeholder text. " +
+          "Always produce Overview and numbered Steps from what the expert said.",
       },
       { role: "user", content: prompt },
     ],
     max_tokens: 4096,
-    temperature: 0.15,
+    temperature: strict ? 0.1 : 0.2,
   });
 
   return response.choices[0]?.message?.content?.trim() ?? "";
+}
+
+export async function extractSkillMd(
+  transcript: Transcript,
+  frameAnnotations: FrameAnnotation[],
+  brief: SkillBriefInput,
+): Promise<string> {
+  let generatedMd = await runSkillExtraction(transcript, frameAnnotations, brief, false);
+
+  const body = generatedMd.match(/^---[\s\S]*?---\r?\n([\s\S]*)$/)?.[1] ?? generatedMd;
+  if (skillBodyLooksLikePlaceholderEcho(body, brief, transcript)) {
+    console.warn("[process-recording] SKILL extraction echoed placeholder — retrying strict pass");
+    generatedMd = await runSkillExtraction(transcript, frameAnnotations, brief, true);
+  }
+
+  return generatedMd;
 }
 
 export type ProcessRecordingResult = {
@@ -399,7 +516,7 @@ export async function processRecordingForSkill(
       : [];
 
   const generatedMd = await extractSkillMd(transcript, frameAnnotations, brief);
-  const skillMd = mergeSkillMd(draftSkillMd, generatedMd);
+  const skillMd = mergeSkillMd(draftSkillMd, generatedMd, brief);
 
   return { skillMd, transcript, frameAnnotations, audioWarning, videoWarning };
 }
