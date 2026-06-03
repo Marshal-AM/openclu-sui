@@ -9,6 +9,7 @@ import {
   cleanupWorkDir,
   createWorkDir,
   readFileBuffer,
+  sniffMediaContainerFromPath,
   sniffVideoContainer,
   writeUploadBuffer,
 } from "@/lib/video-ffmpeg";
@@ -146,6 +147,31 @@ export async function POST(request: Request) {
       );
     }
 
+    const hadAudioRaw = form.get("had_audio_tracks");
+    const clientHadAudioTracks = hadAudioRaw === "true";
+
+    let narrationAudioPath: string | undefined;
+    const narrationBlob = form.get("narration_audio");
+    if (narrationBlob instanceof Blob && narrationBlob.size > 256) {
+      const narrBuffer = Buffer.from(await narrationBlob.arrayBuffer());
+      const narrSniff = sniffVideoContainer(narrBuffer);
+      const narrExt =
+        narrSniff === "mp4" ? "m4a" : narrSniff === "webm" ? "webm" : "webm";
+      narrationAudioPath = await writeUploadBuffer(workDir, `narration.${narrExt}`, narrBuffer);
+      const narrOnDisk = await sniffMediaContainerFromPath(narrationAudioPath);
+      const head = narrBuffer.subarray(0, 4);
+      console.log(
+        `[process-recording] narration sidecar ${(narrationBlob.size / 1024).toFixed(1)} KB ` +
+          `type=${narrationBlob.type || "unknown"} sniff=${narrOnDisk} ` +
+          `magic=${head.length >= 4 ? head.toString("hex") : "short"}`,
+      );
+      if (narrOnDisk !== "webm" && narrOnDisk !== "mp4") {
+        console.warn(
+          "[process-recording] narration file is not a valid WebM/MP4 container — transcription will likely fail",
+        );
+      }
+    }
+
     const draftSkillMd = buildDraftSkillMd(brief);
     const result = await processRecordingForSkill(
       videoPath,
@@ -153,11 +179,13 @@ export async function POST(request: Request) {
       draftSkillMd,
       clientFrames,
       brief,
+      { clientHadAudioTracks, narrationAudioPath },
     );
 
     console.log(
       `[process-recording] transcript segments=${result.transcript.segments.length} ` +
-        `chars=${result.transcript.full_text.length} frames=${result.frameAnnotations.length}`,
+        `chars=${result.transcript.full_text.length} frames=${result.frameAnnotations.length} ` +
+        `narration=${narrationAudioPath ? "yes" : "no"}`,
     );
     const recordingBuffer = await readFileBuffer(videoPath);
 

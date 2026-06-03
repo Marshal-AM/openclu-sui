@@ -3,6 +3,7 @@ import { join } from "node:path";
 import Groq from "groq-sdk";
 import {
   extractAudioForTranscription,
+  probeAudioByExtraction,
   probeMediaStreams,
   readJpegAsBase64,
 } from "@/lib/video-ffmpeg";
@@ -271,51 +272,104 @@ function emptyTranscript(): Transcript {
   return { full_text: "", segments: [] };
 }
 
+function shortTranscriptionError(message: string): string {
+  const line =
+    message
+      .split("\n")
+      .map((s) => s.trim())
+      .find((s) => s.length > 0) ?? message;
+  return line.length > 220 ? `${line.slice(0, 217)}…` : line;
+}
+
 async function transcribeFromVideo(
   videoPath: string,
   workDir: string,
+  clientHadAudioTracks: boolean,
+  narrationAudioPath?: string,
 ): Promise<{
   transcript: Transcript;
   audioWarning: string | null;
 }> {
-  let hasAudio = false;
-  try {
-    hasAudio = (await probeMediaStreams(videoPath)).hasAudio;
-  } catch {
-    return {
-      transcript: emptyTranscript(),
-      audioWarning:
-        "Recording file could not be read for audio (it may still have worked in the browser). " +
-        "Skill was built from screen frames and your brief.",
-    };
+  const attempts: Array<{ label: string; run: () => Promise<Transcript> }> = [];
+
+  if (narrationAudioPath) {
+    attempts.push({
+      label: "narration-wav",
+      run: async () => {
+        const wavPath = join(workDir, "narration-for-whisper.wav");
+        await extractAudioForTranscription(narrationAudioPath, wavPath);
+        return transcribeAudio(wavPath);
+      },
+    });
+    attempts.push({
+      label: "narration-mp3",
+      run: async () => {
+        const mp3Path = join(workDir, "narration-for-whisper.mp3");
+        await extractAudioForTranscription(narrationAudioPath, mp3Path);
+        return transcribeAudio(mp3Path);
+      },
+    });
+    attempts.push({
+      label: "narration-direct",
+      run: async () => transcribeAudio(narrationAudioPath),
+    });
   }
 
-  if (!hasAudio) {
-    return {
-      transcript: emptyTranscript(),
-      audioWarning:
-        "No audio track detected. When sharing your screen, enable “Also share tab/system audio”, " +
-        "or allow microphone access. Skill was built from screen frames — speak your comments aloud for richer skills.",
-    };
-  }
+  attempts.push(
+    {
+      label: "video-direct",
+      run: async () => transcribeAudio(videoPath),
+    },
+    {
+      label: "video-mp3",
+      run: async () => {
+        const mp3Path = join(workDir, "audio-for-whisper.mp3");
+        await extractAudioForTranscription(videoPath, mp3Path);
+        return transcribeAudio(mp3Path);
+      },
+    },
+  );
 
-  try {
-    return { transcript: await transcribeAudio(videoPath), audioWarning: null };
-  } catch (directErr) {
+  let lastError = "";
+  for (const { label, run } of attempts) {
     try {
-      const mp3Path = join(workDir, "audio-for-whisper.mp3");
-      await extractAudioForTranscription(videoPath, mp3Path);
-      const transcript = await transcribeAudio(mp3Path);
-      return { transcript, audioWarning: null };
-    } catch {
-      const detail =
-        directErr instanceof Error ? directErr.message : String(directErr);
-      return {
-        transcript: emptyTranscript(),
-        audioWarning: `Audio transcription failed (${detail}). Skill was built from screen frames only.`,
-      };
+      const transcript = await run();
+      if (transcript.full_text.trim() || transcript.segments.length > 0) {
+        return { transcript, audioWarning: null };
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      lastError = msg;
+      console.warn(`[process-recording] transcription ${label} failed:`, shortTranscriptionError(msg));
     }
   }
+
+  let probeSaysAudio = false;
+  try {
+    const probe = await probeMediaStreams(videoPath);
+    probeSaysAudio = probe.hasAudio;
+    if (!probeSaysAudio && (clientHadAudioTracks || probe.hasVideo)) {
+      probeSaysAudio = await probeAudioByExtraction(videoPath, workDir);
+    }
+  } catch {
+    /* ignore */
+  }
+
+  if (clientHadAudioTracks || probeSaysAudio) {
+    return {
+      transcript: emptyTranscript(),
+      audioWarning:
+        `Voice was captured but transcription failed (${shortTranscriptionError(lastError || "empty result")}). ` +
+        "Skill was built from screen frames. Record at least 15 seconds with narration on http://localhost:3000/record in Edge.",
+    };
+  }
+
+  return {
+    transcript: emptyTranscript(),
+    audioWarning:
+      "No usable audio in the upload. Allow microphone access when prompted (required for narration). " +
+      "Skill was built from screen frames — speak your comments aloud for richer skills.",
+  };
 }
 
 export async function processRecordingForSkill(
@@ -324,6 +378,7 @@ export async function processRecordingForSkill(
   draftSkillMd: string,
   clientFrames: { manifest: FrameManifestEntry[]; framePaths: string[] },
   brief: SkillBriefInput,
+  options?: { clientHadAudioTracks?: boolean; narrationAudioPath?: string },
 ): Promise<ProcessRecordingResult> {
   let videoWarning: string | null = null;
   if (clientFrames.framePaths.length === 0) {
@@ -331,7 +386,12 @@ export async function processRecordingForSkill(
       "No screen frames were captured in the browser. SKILL.md used your title, description, and any audio only.";
   }
 
-  const { transcript, audioWarning } = await transcribeFromVideo(videoPath, workDir);
+  const { transcript, audioWarning } = await transcribeFromVideo(
+    videoPath,
+    workDir,
+    options?.clientHadAudioTracks ?? false,
+    options?.narrationAudioPath,
+  );
 
   const frameAnnotations =
     clientFrames.manifest.length > 0

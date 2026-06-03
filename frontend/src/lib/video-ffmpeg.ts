@@ -62,10 +62,47 @@ export async function probeMediaStreams(
       err && typeof err === "object" && "stderr" in err
         ? String((err as { stderr: Buffer | string }).stderr)
         : "";
+    const hasAudio =
+      /Audio:/i.test(stderr) ||
+      /\bopus\b/i.test(stderr) ||
+      /\bvorbis\b/i.test(stderr) ||
+      /\bpcm_/i.test(stderr) ||
+      /Stream #\d+:\d+.*Audio/i.test(stderr);
     return {
       hasVideo: /Video:/i.test(stderr),
-      hasAudio: /Audio:/i.test(stderr),
+      hasAudio,
     };
+  }
+}
+
+/** Browser WebM often omits Audio: in ffmpeg stderr; try extracting a few seconds of audio. */
+export async function probeAudioByExtraction(
+  mediaPath: string,
+  workDir: string,
+): Promise<boolean> {
+  const outPath = join(workDir, "probe-audio.mp3");
+  try {
+    await runFfmpeg([
+      "-y",
+      "-i",
+      mediaPath,
+      "-vn",
+      "-t",
+      "30",
+      "-acodec",
+      "libmp3lame",
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      "-b:a",
+      "64k",
+      outPath,
+    ]);
+    const buf = await readFile(outPath);
+    return buf.length > 500;
+  } catch {
+    return false;
   }
 }
 
@@ -115,25 +152,64 @@ export async function extractFrames(
   };
 }
 
+export async function sniffMediaContainerFromPath(filePath: string): Promise<VideoContainer> {
+  const buf = await readFile(filePath);
+  return sniffVideoContainer(buf.subarray(0, Math.min(buf.length, 64)));
+}
+
+/** Convert browser WebM/MP4 (screen or narration sidecar) to MP3/WAV for Whisper. */
 export async function extractAudioForTranscription(
-  videoPath: string,
+  mediaPath: string,
   outputPath: string,
 ): Promise<void> {
-  await runFfmpeg([
-    "-y",
+  const container = await sniffMediaContainerFromPath(mediaPath);
+  const toWav = outputPath.endsWith(".wav");
+  const outputCodec = toWav
+    ? ["-acodec", "pcm_s16le"]
+    : ["-acodec", "libmp3lame", "-b:a", "96k"];
+  const tail = ["-ar", "16000", "-ac", "1", ...outputCodec, outputPath];
+
+  const variants: string[][] = [];
+
+  if (container === "webm") {
+    variants.push(["-f", "webm", "-i", mediaPath, "-vn", ...tail]);
+    variants.push(["-f", "matroska", "-i", mediaPath, "-vn", ...tail]);
+  } else if (container === "mp4") {
+    variants.push(["-f", "mp4", "-i", mediaPath, "-vn", ...tail]);
+  }
+
+  variants.push(["-i", mediaPath, "-vn", ...tail]);
+  variants.push([
+    "-fflags",
+    "+genpts+igndts",
+    "-err_detect",
+    "ignore_err",
     "-i",
-    videoPath,
+    mediaPath,
     "-vn",
-    "-acodec",
-    "libmp3lame",
-    "-ar",
-    "44100",
-    "-ac",
-    "1",
-    "-b:a",
-    "96k",
-    outputPath,
+    ...tail,
   ]);
+
+  // Audio-only sidecars may not need -vn
+  if (container === "webm" || container === "unknown") {
+    variants.push(["-f", "webm", "-i", mediaPath, ...tail]);
+    variants.push(["-i", mediaPath, ...tail]);
+  }
+
+  let lastErr: unknown;
+  for (const args of variants) {
+    try {
+      await runFfmpeg(["-y", ...args]);
+      const out = await readFile(outputPath);
+      if (out.length > 400) return;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error("Could not extract audio from recording for transcription.");
 }
 
 export async function readFileBuffer(path: string): Promise<Buffer> {

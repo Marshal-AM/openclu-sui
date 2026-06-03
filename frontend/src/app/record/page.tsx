@@ -16,10 +16,12 @@ import { captureLivePreviewFrame, type ClientCapturedFrame } from "@/lib/extract
 import { FRAME_INTERVAL_SEC } from "@/lib/recording-constants";
 import {
   attachStreamEndedHandler,
+  describeAudioCapture,
   getScreenCaptureDiagnostics,
   ScreenRecorderError,
   startScreenRecording,
   stopScreenRecording,
+  type RecordingAudioCapture,
   type ScreenRecorderStatus,
   type ScreenRecordingSession,
 } from "@/lib/screen-recorder";
@@ -115,6 +117,7 @@ export default function RecordPage() {
   const [skillMd, setSkillMd] = useState<string | null>(null);
   const [processResult, setProcessResult] = useState<ProcessRecordingResponse | null>(null);
   const [processError, setProcessError] = useState<string | null>(null);
+  const [audioCaptureInfo, setAudioCaptureInfo] = useState<RecordingAudioCapture | null>(null);
 
   const sessionRef = useRef<ScreenRecordingSession | null>(null);
   const formRef = useRef(form);
@@ -175,6 +178,7 @@ export default function RecordPage() {
     capturedFramesRef.current = [];
     frameIndexRef.current = 0;
     setElapsedSec(0);
+    setAudioCaptureInfo(null);
   }, [clearElapsedTimer, clearFrameCaptureTimer]);
 
   const finalizeRecording = useCallback(
@@ -204,7 +208,13 @@ export default function RecordPage() {
         }
         const liveFrames = [...capturedFramesRef.current];
 
-        const blob = await stopScreenRecording(session);
+        const { video: blob, narration } = await stopScreenRecording(session);
+        if (session.audioCapture.narrationSidecar && !narration) {
+          toast.warning("Voice track was invalid", {
+            description:
+              "The browser did not produce a valid audio file. Record at least 15 seconds in Edge on http://localhost:3000/record.",
+          });
+        }
         const current = formRef.current;
         const suffix = slugSuffixRef.current;
         const title = current.title.trim();
@@ -235,7 +245,11 @@ export default function RecordPage() {
             expertiseSource: current.expertiseSource,
             recordedAt: new Date().toISOString(),
           },
-          { frames: liveFrames },
+          {
+            frames: liveFrames,
+            clientHadAudioTracks: session.audioCapture.source !== "none",
+            narrationAudio: narration,
+          },
         );
 
         setProcessingStep("Saving recording and skill bundle…");
@@ -331,6 +345,7 @@ export default function RecordPage() {
     try {
       const session = await startScreenRecording();
       sessionRef.current = session;
+      setAudioCaptureInfo(session.audioCapture);
 
       if (previewRef.current) {
         previewRef.current.srcObject = session.stream;
@@ -340,7 +355,6 @@ export default function RecordPage() {
       capturedFramesRef.current = [];
       frameIndexRef.current = 0;
 
-      session.recorder.start(1000);
       setRecorderStatus("recording");
       setElapsedSec(0);
 
@@ -371,8 +385,7 @@ export default function RecordPage() {
       });
 
       toast.success("Recording started", {
-        description:
-          "Share a tab/window and enable system audio if possible.",
+        description: `Audio: ${describeAudioCapture(session.audioCapture)}. Speak your review comments clearly.`,
       });
     } catch (err) {
       cleanupSession();
@@ -457,9 +470,19 @@ export default function RecordPage() {
 
       {isRecording ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-            <CircleIcon className="size-3 fill-destructive text-destructive animate-pulse" />
-            Recording — {formatElapsed(elapsedSec)}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <CircleIcon className="size-3 fill-destructive text-destructive animate-pulse" />
+              Recording — {formatElapsed(elapsedSec)}
+            </div>
+            {audioCaptureInfo ? (
+              <p className="text-xs text-muted-foreground">
+                Audio: {describeAudioCapture(audioCaptureInfo)}
+                {audioCaptureInfo.source === "microphone"
+                  ? " — narrate your comments while you work."
+                  : ""}
+              </p>
+            ) : null}
           </div>
           <Button type="button" variant="destructive" size="sm" onClick={stopRecording}>
             <SquareIcon className="size-3.5 fill-current" />

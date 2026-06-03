@@ -1,6 +1,7 @@
 import type { FrameAnnotation, SkillBriefInput, Transcript } from "@/lib/skill-md";
 import type { ClientCapturedFrame } from "@/lib/extract-frames-client";
 import { extractFramesFromRecordingBlob } from "@/lib/extract-frames-client";
+import { blobHasWebmHeader } from "@/lib/screen-recorder";
 
 export type ProcessRecordingResponse = {
   ok: true;
@@ -29,7 +30,12 @@ function appendFramesToForm(form: FormData, frames: ClientCapturedFrame[]): void
 export async function uploadRecordingForSkill(
   video: Blob,
   brief: SkillBriefInput,
-  options?: { frames?: ClientCapturedFrame[] },
+  options?: {
+    frames?: ClientCapturedFrame[];
+    clientHadAudioTracks?: boolean;
+    /** Parallel mic recording (Windows-safe); preferred for Whisper */
+    narrationAudio?: Blob | null;
+  },
 ): Promise<ProcessRecordingResponse> {
   if (video.size < 512) {
     throw new Error("Recording is empty or too small. Record for at least a few seconds, then stop.");
@@ -50,10 +56,23 @@ export async function uploadRecordingForSkill(
     throw new Error("No screen frames were captured. Record longer or try a different browser.");
   }
 
+  let narrationAudio = options?.narrationAudio ?? null;
+  if (narrationAudio && narrationAudio.size > 256 && !(await blobHasWebmHeader(narrationAudio))) {
+    console.warn("[upload] Narration blob is not a valid WebM file; skipping voice upload.");
+    narrationAudio = null;
+  }
+
   const form = new FormData();
   const ext = video.type.includes("webm") ? "webm" : video.type.includes("mp4") ? "mp4" : "webm";
   form.append("video", video, `recording.${ext}`);
   form.append("brief", JSON.stringify(brief));
+  const hadAudio =
+    options?.clientHadAudioTracks || (narrationAudio != null && narrationAudio.size > 256);
+  form.append("had_audio_tracks", hadAudio ? "true" : "false");
+  if (narrationAudio && narrationAudio.size > 256) {
+    const audioExt = narrationAudio.type.includes("mp4") ? "m4a" : "webm";
+    form.append("narration_audio", narrationAudio, `narration.${audioExt}`);
+  }
   appendFramesToForm(form, frames);
 
   const res = await fetch("/api/skills/process-recording", {
