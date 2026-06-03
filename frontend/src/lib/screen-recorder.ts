@@ -55,6 +55,109 @@ export async function blobHasWebmHeader(blob: Blob): Promise<boolean> {
   return WEBM_EBML.every((byte, i) => head[i] === byte);
 }
 
+export type RecordingBlobDiagnostics = {
+  byteSize: number;
+  mimeType: string;
+  hasWebmHeader: boolean;
+  magicHex: string;
+  platform: string;
+  userAgent: string;
+};
+
+export async function describeRecordingBlob(blob: Blob): Promise<RecordingBlobDiagnostics> {
+  const head = new Uint8Array(await blob.slice(0, Math.min(8, blob.size)).arrayBuffer());
+  const magicHex = [...head].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const diag: RecordingBlobDiagnostics = {
+    byteSize: blob.size,
+    mimeType: blob.type || "unknown",
+    hasWebmHeader: await blobHasWebmHeader(blob),
+    magicHex: magicHex || "empty",
+    platform: typeof navigator !== "undefined" ? navigator.platform : "",
+    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+  };
+  console.info("[screen-recorder] blob diagnostics", diag);
+  return diag;
+}
+
+export type MicRecorderDiagnostics = {
+  supportedMimeTypes: string[];
+  chosenMimeType: string | null;
+  platform: string;
+  userAgent: string;
+};
+
+export function getMicRecorderDiagnostics(): MicRecorderDiagnostics {
+  const supportedMimeTypes = AUDIO_RECORDER_MIME_CANDIDATES.filter((m) =>
+    MediaRecorder.isTypeSupported(m),
+  );
+  const diag: MicRecorderDiagnostics = {
+    supportedMimeTypes: [...supportedMimeTypes],
+    chosenMimeType: pickAudioOnlyMimeType() ?? null,
+    platform: navigator.platform,
+    userAgent: navigator.userAgent,
+  };
+  console.info("[screen-recorder] mic diagnostics", diag);
+  return diag;
+}
+
+export type MicTestSession = {
+  micStream: MediaStream;
+  recorder: MediaRecorder;
+  mimeType: string;
+  trackLabel: string;
+  trackSettings: MediaTrackSettings;
+};
+
+export async function startMicTestRecording(): Promise<MicTestSession> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    throw new ScreenRecorderError("Microphone API is not available.", "unsupported");
+  }
+
+  const micStream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+    },
+    video: false,
+  });
+
+  const track = micStream.getAudioTracks()[0];
+  if (!track || track.readyState !== "live") {
+    micStream.getTracks().forEach((t) => t.stop());
+    throw new ScreenRecorderError("No live microphone track.", "failed");
+  }
+
+  const settings = track.getSettings();
+  console.info("[screen-recorder] mic test track", {
+    label: track.label,
+    settings,
+    diagnostics: getMicRecorderDiagnostics(),
+  });
+
+  const sidecar = startNarrationRecorder(micStream);
+  if (!sidecar) {
+    micStream.getTracks().forEach((t) => t.stop());
+    throw new ScreenRecorderError("Could not start microphone recorder.", "failed");
+  }
+
+  return {
+    micStream,
+    recorder: sidecar.recorder,
+    mimeType: sidecar.mimeType,
+    trackLabel: track.label,
+    trackSettings: settings,
+  };
+}
+
+export async function stopMicTestRecording(
+  session: MicTestSession,
+): Promise<{ blob: Blob; diagnostics: RecordingBlobDiagnostics }> {
+  const blob = await stopMediaRecorder(session.recorder, session.mimeType);
+  session.micStream.getTracks().forEach((t) => t.stop());
+  const diagnostics = await describeRecordingBlob(blob);
+  return { blob, diagnostics };
+}
+
 function resolveGetDisplayMedia():
   | ((constraints?: DisplayMediaStreamOptions) => Promise<MediaStream>)
   | null {
@@ -139,12 +242,16 @@ function pickVideoMimeType(): string | undefined {
   return undefined;
 }
 
+const AUDIO_RECORDER_MIME_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+  "audio/ogg;codecs=opus",
+  "audio/aac",
+] as const;
+
 function pickAudioOnlyMimeType(): string | undefined {
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/ogg;codecs=opus",
-  ];
+  const candidates = [...AUDIO_RECORDER_MIME_CANDIDATES];
   for (const mimeType of candidates) {
     if (MediaRecorder.isTypeSupported(mimeType)) return mimeType;
   }
@@ -408,9 +515,12 @@ export function stopScreenRecording(session: ScreenRecordingSession): Promise<Re
       let narrationOut: Blob | null =
         narration && narration.size > 256 ? narration : null;
 
-      if (narrationOut && !(await blobHasWebmHeader(narrationOut))) {
-        console.warn("[screen-recorder] Narration blob missing WebM header; size=", narrationOut.size);
-        narrationOut = null;
+      if (narrationOut) {
+        const narrDiag = await describeRecordingBlob(narrationOut);
+        if (!narrDiag.hasWebmHeader && !narrationOut.type.includes("mp4")) {
+          console.warn("[screen-recorder] Narration blob missing WebM header", narrDiag);
+          narrationOut = null;
+        }
       }
 
       if (video.size > 256 && !(await blobHasWebmHeader(video))) {
@@ -432,7 +542,7 @@ export function downloadRecording(blob: Blob, filenameBase: string): void {
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
+      .replace(/^-+|-+$/g, "")
       .slice(0, 64) || "screen-recording";
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import Groq from "groq-sdk";
 import {
@@ -6,6 +7,8 @@ import {
   probeAudioByExtraction,
   probeMediaStreams,
   readJpegAsBase64,
+  sniffVideoContainer,
+  type VideoContainer,
 } from "@/lib/video-ffmpeg";
 import {
   briefLooksLikePlaceholder,
@@ -124,6 +127,86 @@ export async function transcribeAudio(audioPath: string): Promise<Transcript> {
     full_text: response.text ?? "",
     segments,
     language: response.language,
+  };
+}
+
+export type TranscribeAttemptLog = {
+  label: string;
+  ok: boolean;
+  error?: string;
+  transcriptPreview?: string;
+};
+
+export type TranscribeNarrationDebugResult = {
+  transcript: Transcript;
+  attempts: TranscribeAttemptLog[];
+  sniff: VideoContainer;
+  magicHex: string;
+  byteSize: number;
+};
+
+/** Audio-only test / debug (same pipeline as skill narration sidecar). */
+export async function transcribeNarrationFile(
+  audioPath: string,
+  workDir: string,
+): Promise<TranscribeNarrationDebugResult> {
+  const buf = await readFile(audioPath);
+  const sniff = sniffVideoContainer(buf);
+  const magicHex = buf.subarray(0, Math.min(8, buf.length)).toString("hex");
+
+  const attempts: TranscribeAttemptLog[] = [];
+  const tries: Array<{ label: string; run: () => Promise<Transcript> }> = [
+    {
+      label: "narration-wav",
+      run: async () => {
+        const wavPath = join(workDir, "test-narration.wav");
+        await extractAudioForTranscription(audioPath, wavPath);
+        return transcribeAudio(wavPath);
+      },
+    },
+    {
+      label: "narration-mp3",
+      run: async () => {
+        const mp3Path = join(workDir, "test-narration.mp3");
+        await extractAudioForTranscription(audioPath, mp3Path);
+        return transcribeAudio(mp3Path);
+      },
+    },
+    { label: "narration-direct", run: async () => transcribeAudio(audioPath) },
+  ];
+
+  for (const { label, run } of tries) {
+    try {
+      const transcript = await run();
+      const text = transcript.full_text.trim();
+      attempts.push({
+        label,
+        ok: true,
+        transcriptPreview: text.slice(0, 160) || "(empty text)",
+      });
+      if (text || transcript.segments.length > 0) {
+        console.log(`[test-audio] ${label} ok chars=${text.length}`);
+        return {
+          transcript,
+          attempts,
+          sniff,
+          magicHex,
+          byteSize: buf.length,
+        };
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      attempts.push({ label, ok: false, error: msg.slice(0, 200) });
+      console.warn(`[test-audio] ${label} failed:`, msg.slice(0, 120));
+    }
+  }
+
+  return {
+    transcript: { full_text: "", segments: [] },
+    attempts,
+    sniff,
+    magicHex,
+    byteSize: buf.length,
   };
 }
 

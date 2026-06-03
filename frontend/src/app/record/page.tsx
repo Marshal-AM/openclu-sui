@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { MicAudioTestPanel } from "@/components/record/mic-audio-test-panel";
 
 type MetadataForm = {
   skillSlug: string;
@@ -209,6 +210,11 @@ export default function RecordPage() {
         const liveFrames = [...capturedFramesRef.current];
 
         const { video: blob, narration } = await stopScreenRecording(session);
+        if (narration) {
+          const { describeRecordingBlob } = await import("@/lib/screen-recorder");
+          const narrDiag = await describeRecordingBlob(narration);
+          console.info("[record] narration upload diagnostics", narrDiag);
+        }
         if (session.audioCapture.narrationSidecar && !narration) {
           toast.warning("Voice track was invalid", {
             description:
@@ -467,6 +473,8 @@ export default function RecordPage() {
           </p>
         </div>
       ) : null}
+
+      <MicAudioTestPanel disabled={isBusy} />
 
       {isRecording ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
