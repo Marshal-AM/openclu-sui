@@ -3,6 +3,7 @@ import { join } from "node:path";
 import Groq from "groq-sdk";
 import {
   extractAudioForTranscription,
+  isFfmpegMissingError,
   measureAudioLoudness,
   probeAudioByExtraction,
   probeMediaStreams,
@@ -400,6 +401,23 @@ function shortTranscriptionError(message: string): string {
   return line.length > 220 ? `${line.slice(0, 217)}…` : line;
 }
 
+function transcriptionUserHint(lastError: string, quietMic: boolean): string {
+  if (isFfmpegMissingError(lastError)) {
+    return (
+      " Audio processing (ffmpeg) is missing on the server — transcription cannot run on this deployment yet. " +
+      "Use local dev (npm run dev on your PC) for full voice-to-skill, or redeploy after the ffmpeg bundle fix."
+    );
+  }
+  if (quietMic) {
+    return (
+      " Audio was very quiet. Pick the correct microphone, allow mic access, and speak clearly for 15+ seconds."
+    );
+  }
+  return (
+    " Check microphone permission, pick the correct input device, and speak your walkthrough for 15+ seconds."
+  );
+}
+
 async function transcribeFromVideo(
   videoPath: string,
   workDir: string,
@@ -468,7 +486,7 @@ async function transcribeFromVideo(
         if (narrationLoudness?.likelySilent) {
           audioWarning =
             `Voice track is very quiet (max ${narrationLoudness.maxVolumeDb ?? "?"} dB). ` +
-            "Transcript may be unreliable — check mic input on Mac and use mac-friendly profile.";
+            "Transcript may be unreliable — check mic level and input device.";
         }
         return { transcript, audioWarning };
       }
@@ -491,14 +509,13 @@ async function transcribeFromVideo(
   }
 
   if (clientHadAudioTracks || probeSaysAudio) {
-    const quietHint = narrationLoudness?.likelySilent
-      ? " Audio file was near-silence (Mac mic level too low or wrong input device)."
-      : "";
+    const quietMic = Boolean(narrationLoudness?.likelySilent);
     return {
       transcript: emptyTranscript(),
       audioWarning:
-        `Voice was captured but transcription failed (${shortTranscriptionError(lastError || "empty result")}).${quietHint} ` +
-        "Skill was built from screen frames. On Mac: pick the correct mic, use mac-friendly profile, speak 15+ seconds.",
+        `Voice was captured but transcription failed (${shortTranscriptionError(lastError || "empty result")}).` +
+        transcriptionUserHint(lastError, quietMic) +
+        " Skill was built from screen frames.",
     };
   }
 

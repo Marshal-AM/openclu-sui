@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
     },
   },
   serverExternalPackages: ["ffmpeg-static", "@xenova/transformers", "onnxruntime-node"],
+  /** Bundle ffmpeg binary into the process-recording serverless function (Vercel ENOENT fix). */
+  outputFileTracingIncludes: {
+    "/api/skills/process-recording": ["./node_modules/ffmpeg-static/**/*"],
+  },
   webpack: (config, { webpack: wp }) => {
     config.plugins = [
       ...(config.plugins ?? []),

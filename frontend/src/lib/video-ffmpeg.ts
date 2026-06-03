@@ -3,13 +3,14 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import ffmpegPath from "ffmpeg-static";
+import { resolveFfmpegBinary } from "@/lib/ffmpeg-binary";
 
 const execFileAsync = promisify(execFile);
 
 import { FRAME_INTERVAL_SEC, MAX_FRAMES } from "@/lib/recording-constants";
 
 export { FRAME_INTERVAL_SEC };
+export { resolveFfmpegBinary, isFfmpegMissingError } from "@/lib/ffmpeg-binary";
 
 export type FrameManifestEntry = {
   index: number;
@@ -17,17 +18,8 @@ export type FrameManifestEntry = {
   file: string;
 };
 
-function requireFfmpeg(): string {
-  if (!ffmpegPath) {
-    throw new Error(
-      "ffmpeg binary not found. Reinstall dependencies (ffmpeg-static) and restart the dev server.",
-    );
-  }
-  return ffmpegPath;
-}
-
 async function runFfmpeg(args: string[]): Promise<void> {
-  const bin = requireFfmpeg();
+  const bin = await resolveFfmpegBinary();
   await execFileAsync(bin, args, { maxBuffer: 32 * 1024 * 1024 });
 }
 
@@ -53,7 +45,7 @@ export function sniffVideoContainer(data: Buffer | Uint8Array): VideoContainer {
 export async function probeMediaStreams(
   mediaPath: string,
 ): Promise<{ hasVideo: boolean; hasAudio: boolean }> {
-  const bin = requireFfmpeg();
+  const bin = await resolveFfmpegBinary();
   try {
     await execFileAsync(bin, ["-i", mediaPath], { maxBuffer: 16 * 1024 * 1024 });
     return { hasVideo: false, hasAudio: false };
@@ -225,7 +217,7 @@ export type AudioLoudnessStats = {
 
 /** Parse ffmpeg volumedetect stderr — useful to confirm Mac uploads contain speech. */
 export async function measureAudioLoudness(mediaPath: string): Promise<AudioLoudnessStats> {
-  const bin = requireFfmpeg();
+  const bin = await resolveFfmpegBinary();
   try {
     await execFileAsync(
       bin,

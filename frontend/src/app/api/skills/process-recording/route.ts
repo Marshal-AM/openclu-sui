@@ -9,6 +9,7 @@ import {
   cleanupWorkDir,
   createWorkDir,
   readFileBuffer,
+  resolveFfmpegBinary,
   sniffMediaContainerFromPath,
   sniffVideoContainer,
   writeUploadBuffer,
@@ -70,6 +71,21 @@ export async function POST(request: Request) {
   let workDir: string | null = null;
 
   try {
+    try {
+      await resolveFfmpegBinary();
+    } catch (ffmpegErr) {
+      const detail = ffmpegErr instanceof Error ? ffmpegErr.message : String(ffmpegErr);
+      console.error("[process-recording] ffmpeg unavailable:", detail);
+      return NextResponse.json(
+        {
+          error:
+            "Server audio processing (ffmpeg) is not available. " +
+            "Record and process skills locally with npm run dev, or redeploy after updating the app.",
+        },
+        { status: 503 },
+      );
+    }
+
     const form = await request.formData();
     const video = form.get("video");
 
