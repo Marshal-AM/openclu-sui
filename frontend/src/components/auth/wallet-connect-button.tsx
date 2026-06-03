@@ -18,7 +18,7 @@ export function WalletConnectButton() {
   }
 
   if (!connected) {
-    return <ConnectButton connectText="Connect Phantom (Sui)" />;
+    return <ConnectButton connectText="Connect Wallet" />;
   }
 
   return (

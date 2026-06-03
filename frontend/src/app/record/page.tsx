@@ -472,8 +472,7 @@ export default function RecordPage() {
           <p className="font-medium text-foreground">Processing with Groq…</p>
           <p className="mt-1">{processingStep}</p>
           <p className="mt-2 text-xs">
-            Transcribing audio (Whisper), annotating screen frames (vision), then extracting SKILL.md —
-            same pipeline as OpenClu <code className="text-xs">process.py</code>.
+            Transcribing audio (Whisper), annotating screen frames (vision), then extracting SKILL.md.
           </p>
         </div>
       ) : null}
@@ -610,12 +609,6 @@ export default function RecordPage() {
             </Button>
           )}
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          When sharing your screen, turn on <strong>Share system audio</strong> (or allow microphone
-          access — we use your mic if system audio is unavailable). When you stop, the recording is
-          analyzed with Groq (live screen snapshots + optional audio). The video file is only used
-          for transcription when possible — it is not stored on Walrus when you publish.
-        </p>
       </Stage>
 
       <Dialog open={!!quitHref} onOpenChange={(open) => !open && setQuitHref(null)}>
