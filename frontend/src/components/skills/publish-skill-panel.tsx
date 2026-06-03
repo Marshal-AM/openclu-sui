@@ -22,6 +22,8 @@ import { Label } from "@/components/ui/label";
 import { buildPurchaseSkillTx } from "@/lib/sui/move-tx";
 import {
   extractTransactionDigestFromError,
+  assertWalletGasBalance,
+  formatWalletSignError,
   signAndExecuteTransactionWithWallet,
 } from "@/lib/sui/sign-and-execute";
 import {
@@ -168,19 +170,57 @@ export function PublishSkillPanel(props: PublishSkillPanelProps) {
 
       await publishFlowDelay(logger, "before wallet signing");
 
-      logger.log("wallet", "Requesting wallet signature…");
       if (!currentWallet || !isConnected || !account) {
         throw new Error("Connect your Sui wallet first.");
       }
 
-      const { digest } = await signAndExecuteTransactionWithWallet({
-        wallet: currentWallet,
-        account,
-        client,
-        network,
-        supportedIntents,
-        transaction,
+      const appNetwork = getSuiNetwork();
+      if (network !== appNetwork) {
+        throw new Error(
+          `App network mismatch: UI is on ${network} but NEXT_PUBLIC_SUI_NETWORK=${appNetwork}. ` +
+            "Restart dev server after changing .env and reconnect the wallet.",
+        );
+      }
+
+      const { totalMist } = await assertWalletGasBalance(client, address);
+      logger.log("wallet", "Pre-sign checks passed", {
+        detail: `network=${network} balance=${(Number(totalMist) / 1e9).toFixed(4)} SUI chain=sui:${network}`,
       });
+
+      logger.log("wallet", "Requesting wallet signature…", {
+        detail: `wallet=${currentWallet.name} account=${address.slice(0, 10)}…`,
+      });
+
+      let digest: string;
+      try {
+        const executed = await signAndExecuteTransactionWithWallet({
+          wallet: currentWallet,
+          account,
+          client,
+          network,
+          supportedIntents,
+          transaction,
+        });
+        digest = executed.digest;
+        logger.log("wallet", "Signed and executed", {
+          level: "success",
+          detail: `method=${executed.method} digest=${digest}`,
+        });
+      } catch (signErr) {
+        const recovered = formatWalletSignError(signErr, { network });
+        const digestFromErr =
+          signErr instanceof Error
+            ? extractTransactionDigestFromError(signErr.message)
+            : null;
+        if (digestFromErr) {
+          logger.log("wallet", "Transaction may have succeeded despite error", {
+            detail: `digest=${digestFromErr}`,
+          });
+          digest = digestFromErr;
+        } else {
+          throw new Error(recovered);
+        }
+      }
 
       const created = await fetchCreatedObjectIds(client, digest);
 
@@ -241,7 +281,7 @@ export function PublishSkillPanel(props: PublishSkillPanelProps) {
       );
       setResultOpen(true);
     } catch (err) {
-      let message = err instanceof Error ? err.message : "Publish failed.";
+      let message = formatWalletSignError(err, { network: getSuiNetwork() });
       if (/429|too many requests/i.test(message)) {
         message =
           "Tatum RPC rate limit (429). Publish now waits between steps; try again in a minute or set NEXT_PUBLIC_PUBLISH_RPC_GAP_MS=8000 in .env.";
