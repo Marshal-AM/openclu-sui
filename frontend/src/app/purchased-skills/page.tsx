@@ -91,7 +91,7 @@ export default function PurchasedSkillsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">My Purchased Skills</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Skills you bought on the marketplace. Decrypt uses your on-chain purchase receipt + Walrus +
-            Seal (no skill content is stored in Supabase).
+            Seal.
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void load()}>
