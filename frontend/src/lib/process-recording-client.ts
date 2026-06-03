@@ -1,7 +1,15 @@
 import type { FrameAnnotation, SkillBriefInput, Transcript } from "@/lib/skill-md";
 import type { ClientCapturedFrame } from "@/lib/extract-frames-client";
 import { extractFramesFromRecordingBlob } from "@/lib/extract-frames-client";
-import { blobHasWebmHeader } from "@/lib/screen-recorder";
+import { analyzeBlobAudioLevels, type BlobLevelAnalysis } from "@/lib/mic-audio-utils";
+import type { MicLevelSnapshot } from "@/lib/mic-audio-utils";
+import { isValidNarrationBlob } from "@/lib/screen-recorder";
+
+export type NarrationUploadMeta = {
+  levelSnapshot?: MicLevelSnapshot | null;
+  blobLevels?: BlobLevelAnalysis | null;
+  captureProfile?: string;
+};
 
 export type ProcessRecordingResponse = {
   ok: true;
@@ -33,8 +41,9 @@ export async function uploadRecordingForSkill(
   options?: {
     frames?: ClientCapturedFrame[];
     clientHadAudioTracks?: boolean;
-    /** Parallel mic recording (Windows-safe); preferred for Whisper */
+    /** Parallel mic recording — preferred for Whisper (Mac + Windows) */
     narrationAudio?: Blob | null;
+    narrationMeta?: NarrationUploadMeta;
   },
 ): Promise<ProcessRecordingResponse> {
   if (video.size < 512) {
@@ -57,9 +66,19 @@ export async function uploadRecordingForSkill(
   }
 
   let narrationAudio = options?.narrationAudio ?? null;
-  if (narrationAudio && narrationAudio.size > 256 && !(await blobHasWebmHeader(narrationAudio))) {
-    console.warn("[upload] Narration blob is not a valid WebM file; skipping voice upload.");
-    narrationAudio = null;
+  let narrationMeta = options?.narrationMeta;
+
+  if (narrationAudio && narrationAudio.size > 256) {
+    if (!(await isValidNarrationBlob(narrationAudio))) {
+      console.warn("[upload] Narration blob invalid container; skipping voice upload.");
+      narrationAudio = null;
+    } else {
+      const blobLevels = await analyzeBlobAudioLevels(narrationAudio);
+      narrationMeta = { ...narrationMeta, blobLevels };
+      if (blobLevels.likelySilent) {
+        console.warn("[upload] Narration likely silent/noise only", blobLevels);
+      }
+    }
   }
 
   const form = new FormData();
@@ -72,6 +91,9 @@ export async function uploadRecordingForSkill(
   if (narrationAudio && narrationAudio.size > 256) {
     const audioExt = narrationAudio.type.includes("mp4") ? "m4a" : "webm";
     form.append("narration_audio", narrationAudio, `narration.${audioExt}`);
+  }
+  if (narrationMeta) {
+    form.append("narration_meta", JSON.stringify(narrationMeta));
   }
   appendFramesToForm(form, frames);
 

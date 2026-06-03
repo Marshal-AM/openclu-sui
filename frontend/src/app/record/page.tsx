@@ -42,7 +42,12 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { MicAudioTestPanel } from "@/components/record/mic-audio-test-panel";
+import {
+  defaultRecordMicPreferences,
+  RecordMicPreferencesFields,
+  type RecordMicPreferences,
+} from "@/components/record/record-mic-preferences";
+import { interpretMicLevels, type MicLevelSnapshot } from "@/lib/mic-audio-utils";
 
 type MetadataForm = {
   skillSlug: string;
@@ -119,8 +124,11 @@ export default function RecordPage() {
   const [processResult, setProcessResult] = useState<ProcessRecordingResponse | null>(null);
   const [processError, setProcessError] = useState<string | null>(null);
   const [audioCaptureInfo, setAudioCaptureInfo] = useState<RecordingAudioCapture | null>(null);
+  const [micPrefs, setMicPrefs] = useState<RecordMicPreferences>(defaultRecordMicPreferences);
+  const [liveMicLevel, setLiveMicLevel] = useState<MicLevelSnapshot | null>(null);
 
   const sessionRef = useRef<ScreenRecordingSession | null>(null);
+  const micLevelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const formRef = useRef(form);
   const slugSuffixRef = useRef(slugSuffix);
   formRef.current = form;
@@ -160,7 +168,12 @@ export default function RecordPage() {
     detachStreamEndRef.current?.();
     detachStreamEndRef.current = null;
     const session = sessionRef.current;
+    if (micLevelTimerRef.current) {
+      clearInterval(micLevelTimerRef.current);
+      micLevelTimerRef.current = null;
+    }
     if (session) {
+      session.levelMonitor?.stop();
       session.stream.getTracks().forEach((t) => t.stop());
       if (session.recorder.state !== "inactive") {
         try {
@@ -180,6 +193,7 @@ export default function RecordPage() {
     frameIndexRef.current = 0;
     setElapsedSec(0);
     setAudioCaptureInfo(null);
+    setLiveMicLevel(null);
   }, [clearElapsedTimer, clearFrameCaptureTimer]);
 
   const finalizeRecording = useCallback(
@@ -209,16 +223,17 @@ export default function RecordPage() {
         }
         const liveFrames = [...capturedFramesRef.current];
 
-        const { video: blob, narration } = await stopScreenRecording(session);
-        if (narration) {
-          const { describeRecordingBlob } = await import("@/lib/screen-recorder");
-          const narrDiag = await describeRecordingBlob(narration);
-          console.info("[record] narration upload diagnostics", narrDiag);
+        const { video: blob, narration, levelSnapshot } = await stopScreenRecording(session);
+
+        if (levelSnapshot && levelSnapshot.peak < 0.02) {
+          toast.warning("Very quiet microphone", {
+            description: interpretMicLevels(levelSnapshot),
+          });
         }
         if (session.audioCapture.narrationSidecar && !narration) {
           toast.warning("Voice track was invalid", {
             description:
-              "The browser did not produce a valid audio file. Record at least 15 seconds in Edge on http://localhost:3000/record.",
+              "The browser did not produce a valid audio file. On Mac: check mic device, mac-friendly profile, and System Settings → Sound → Input.",
           });
         }
         const current = formRef.current;
@@ -255,6 +270,10 @@ export default function RecordPage() {
             frames: liveFrames,
             clientHadAudioTracks: session.audioCapture.source !== "none",
             narrationAudio: narration,
+            narrationMeta: {
+              levelSnapshot,
+              captureProfile: session.captureProfile,
+            },
           },
         );
 
@@ -349,9 +368,19 @@ export default function RecordPage() {
     }
 
     try {
-      const session = await startScreenRecording();
+      const session = await startScreenRecording({
+        deviceId: micPrefs.deviceId || undefined,
+        profile: micPrefs.profile,
+      });
       sessionRef.current = session;
       setAudioCaptureInfo(session.audioCapture);
+      setLiveMicLevel(null);
+
+      if (session.levelMonitor) {
+        micLevelTimerRef.current = setInterval(() => {
+          setLiveMicLevel(session.levelMonitor!.getSnapshot());
+        }, 80);
+      }
 
       if (previewRef.current) {
         previewRef.current.srcObject = session.stream;
@@ -474,8 +503,6 @@ export default function RecordPage() {
         </div>
       ) : null}
 
-      <MicAudioTestPanel disabled={isBusy} />
-
       {isRecording ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
           <div className="flex flex-col gap-1">
@@ -485,11 +512,27 @@ export default function RecordPage() {
             </div>
             {audioCaptureInfo ? (
               <p className="text-xs text-muted-foreground">
-                Audio: {describeAudioCapture(audioCaptureInfo)}
+                Audio: {describeAudioCapture(audioCaptureInfo)} ({micPrefs.profile})
                 {audioCaptureInfo.source === "microphone"
                   ? " — narrate your comments while you work."
                   : ""}
               </p>
+            ) : null}
+            {liveMicLevel ? (
+              <div className="mt-2 max-w-xs">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-green-500 transition-all duration-75"
+                    style={{
+                      width: `${Math.min(100, Math.round(liveMicLevel.current * 100))}%`,
+                    }}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Mic level peak {liveMicLevel.peak.toFixed(2)}
+                  {liveMicLevel.peak < 0.02 ? " — no signal" : ""}
+                </p>
+              </div>
             ) : null}
           </div>
           <Button type="button" variant="destructive" size="sm" onClick={stopRecording}>
@@ -675,6 +718,11 @@ export default function RecordPage() {
             </Field>
           </div>
         </FieldGroup>
+        <RecordMicPreferencesFields
+          value={micPrefs}
+          onChange={setMicPrefs}
+          disabled={isRecording || isBusy}
+        />
         <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
           {isRecording ? (
             <Button type="button" variant="destructive" onClick={stopRecording}>

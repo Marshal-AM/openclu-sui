@@ -15,6 +15,7 @@ import {
   isApplePlatform,
   type MicCaptureProfile,
   type MicLevelMonitor,
+  type MicLevelSnapshot,
 } from "@/lib/mic-audio-utils";
 
 export type ScreenRecorderStatus =
@@ -52,10 +53,25 @@ export class ScreenRecorderError extends Error {
   }
 }
 
+export type ScreenRecordingOptions = {
+  deviceId?: string;
+  profile?: MicCaptureProfile;
+};
+
 export type RecordingBlobs = {
   video: Blob;
   narration: Blob | null;
+  levelSnapshot: MicLevelSnapshot | null;
 };
+
+/** WebM EBML or MP4 ftyp — Mac narration is often audio/mp4. */
+export async function isValidNarrationBlob(blob: Blob): Promise<boolean> {
+  if (blob.size < 256) return false;
+  if (await blobHasWebmHeader(blob)) return true;
+  const head = new Uint8Array(await blob.slice(0, Math.min(12, blob.size)).arrayBuffer());
+  if (head.length >= 8 && String.fromCharCode(...head.subarray(4, 8)) === "ftyp") return true;
+  return blob.type.includes("mp4") || blob.type.includes("m4a") || blob.type.includes("audio");
+}
 
 const WEBM_EBML = [0x1a, 0x45, 0xdf, 0xa3] as const;
 
@@ -86,111 +102,6 @@ export async function describeRecordingBlob(blob: Blob): Promise<RecordingBlobDi
   };
   console.info("[screen-recorder] blob diagnostics", diag);
   return diag;
-}
-
-export type MicRecorderDiagnostics = {
-  supportedMimeTypes: string[];
-  chosenMimeType: string | null;
-  platform: string;
-  userAgent: string;
-};
-
-export function getMicRecorderDiagnostics(): MicRecorderDiagnostics {
-  const supportedMimeTypes = AUDIO_RECORDER_MIME_CANDIDATES.filter((m) =>
-    MediaRecorder.isTypeSupported(m),
-  );
-  const diag: MicRecorderDiagnostics = {
-    supportedMimeTypes: [...supportedMimeTypes],
-    chosenMimeType: pickAudioOnlyMimeType() ?? null,
-    platform: navigator.platform,
-    userAgent: navigator.userAgent,
-  };
-  console.info("[screen-recorder] mic diagnostics", diag);
-  return diag;
-}
-
-export type MicTestOptions = {
-  deviceId?: string;
-  profile?: MicCaptureProfile;
-};
-
-export type MicTestSession = {
-  micStream: MediaStream;
-  recorder: MediaRecorder;
-  mimeType: string;
-  trackLabel: string;
-  trackSettings: MediaTrackSettings;
-  profile: MicCaptureProfile;
-  levelMonitor: MicLevelMonitor;
-};
-
-export async function startMicTestRecording(options?: MicTestOptions): Promise<MicTestSession> {
-  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-    throw new ScreenRecorderError("Microphone API is not available.", "unsupported");
-  }
-
-  const profile =
-    options?.profile ?? (isApplePlatform() ? "mac-friendly" : "default");
-
-  const micStream = await navigator.mediaDevices.getUserMedia({
-    audio: getMicAudioConstraints(profile, options?.deviceId),
-    video: false,
-  });
-
-  const track = micStream.getAudioTracks()[0];
-  if (!track || track.readyState !== "live") {
-    micStream.getTracks().forEach((t) => t.stop());
-    throw new ScreenRecorderError("No live microphone track.", "failed");
-  }
-
-  if (track.muted) {
-    console.warn("[screen-recorder] mic track reports muted=true");
-  }
-
-  const settings = track.getSettings();
-  const levelMonitor = attachMicLevelMonitor(micStream);
-  console.info("[screen-recorder] mic test track", {
-    label: track.label,
-    muted: track.muted,
-    enabled: track.enabled,
-    settings,
-    profile,
-    isApple: isApplePlatform(),
-    diagnostics: getMicRecorderDiagnostics(),
-  });
-
-  const sidecar = startNarrationRecorder(micStream);
-  if (!sidecar) {
-    levelMonitor.stop();
-    micStream.getTracks().forEach((t) => t.stop());
-    throw new ScreenRecorderError("Could not start microphone recorder.", "failed");
-  }
-
-  return {
-    micStream,
-    recorder: sidecar.recorder,
-    mimeType: sidecar.mimeType,
-    trackLabel: track.label,
-    trackSettings: settings,
-    profile,
-    levelMonitor,
-  };
-}
-
-export async function stopMicTestRecording(
-  session: MicTestSession,
-): Promise<{
-  blob: Blob;
-  diagnostics: RecordingBlobDiagnostics;
-  levelSnapshot: ReturnType<MicLevelMonitor["getSnapshot"]>;
-}> {
-  const levelSnapshot = session.levelMonitor.getSnapshot();
-  session.levelMonitor.stop();
-  const blob = await stopMediaRecorder(session.recorder, session.mimeType);
-  session.micStream.getTracks().forEach((t) => t.stop());
-  const diagnostics = await describeRecordingBlob(blob);
-  console.info("[screen-recorder] mic test stop", { levelSnapshot, diagnostics });
-  return { blob, diagnostics, levelSnapshot };
 }
 
 function resolveGetDisplayMedia():
@@ -310,6 +221,8 @@ export type ScreenRecordingSession = {
   narrationRecorder: MediaRecorder | null;
   narrationStream: MediaStream | null;
   narrationMimeType: string | null;
+  levelMonitor: MicLevelMonitor | null;
+  captureProfile: MicCaptureProfile;
 };
 
 function startNarrationRecorder(narrationStream: MediaStream): {
@@ -333,7 +246,9 @@ function startNarrationRecorder(narrationStream: MediaStream): {
   }
 }
 
-export async function startScreenRecording(): Promise<ScreenRecordingSession> {
+export async function startScreenRecording(
+  options?: ScreenRecordingOptions,
+): Promise<ScreenRecordingSession> {
   const diagnostics = getScreenCaptureDiagnostics();
   if (!diagnostics.supported) {
     throw new ScreenRecorderError(
@@ -371,11 +286,14 @@ export async function startScreenRecording(): Promise<ScreenRecordingSession> {
   const displayHasAudio = displayStream.getAudioTracks().length > 0;
   const displayAudioTrack = displayStream.getAudioTracks()[0] ?? null;
 
+  const captureProfile =
+    options?.profile ?? (isApplePlatform() ? "mac-friendly" : "default");
+
   let micStream: MediaStream | null = null;
   let micDenied = false;
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
-      audio: getMicAudioConstraints(isApplePlatform() ? "mac-friendly" : "default"),
+      audio: getMicAudioConstraints(captureProfile, options?.deviceId),
       video: false,
     });
   } catch {
@@ -383,6 +301,15 @@ export async function startScreenRecording(): Promise<ScreenRecordingSession> {
   }
 
   const micTrack = micStream?.getAudioTracks()[0] ?? null;
+  if (micTrack) {
+    console.info("[screen-recorder] narration mic", {
+      label: micTrack.label,
+      muted: micTrack.muted,
+      profile: captureProfile,
+      settings: micTrack.getSettings(),
+      mime: pickAudioOnlyMimeType(),
+    });
+  }
 
   let audioSource: RecordingAudioCapture["source"] = "none";
   let narrationStream: MediaStream | null = null;
@@ -448,6 +375,11 @@ export async function startScreenRecording(): Promise<ScreenRecordingSession> {
     );
   }
 
+  const levelMonitor =
+    narrationStream && audioSource === "microphone"
+      ? attachMicLevelMonitor(narrationStream)
+      : null;
+
   recorder.start();
 
   return {
@@ -459,6 +391,8 @@ export async function startScreenRecording(): Promise<ScreenRecordingSession> {
     narrationRecorder,
     narrationStream,
     narrationMimeType,
+    levelMonitor,
+    captureProfile,
   };
 }
 
@@ -526,6 +460,7 @@ function stopMediaRecorder(recorder: MediaRecorder, fallbackMime: string): Promi
 }
 
 function stopAllSessionTracks(session: ScreenRecordingSession): void {
+  session.levelMonitor?.stop();
   session.stream.getTracks().forEach((track) => track.stop());
   if (session.narrationStream && session.narrationStream !== session.micStream) {
     session.narrationStream.getTracks().forEach((track) => track.stop());
@@ -534,7 +469,9 @@ function stopAllSessionTracks(session: ScreenRecordingSession): void {
 }
 
 export function stopScreenRecording(session: ScreenRecordingSession): Promise<RecordingBlobs> {
-  const { recorder, narrationRecorder, narrationMimeType } = session;
+  const { recorder, narrationRecorder, narrationMimeType, levelMonitor } = session;
+  const levelSnapshot = levelMonitor?.getSnapshot() ?? null;
+  levelMonitor?.stop();
 
   const stopNarration =
     narrationRecorder && narrationMimeType
@@ -549,19 +486,23 @@ export function stopScreenRecording(session: ScreenRecordingSession): Promise<Re
       let narrationOut: Blob | null =
         narration && narration.size > 256 ? narration : null;
 
-      if (narrationOut) {
+      if (narrationOut && !(await isValidNarrationBlob(narrationOut))) {
         const narrDiag = await describeRecordingBlob(narrationOut);
-        if (!narrDiag.hasWebmHeader && !narrationOut.type.includes("mp4")) {
-          console.warn("[screen-recorder] Narration blob missing WebM header", narrDiag);
-          narrationOut = null;
-        }
+        console.warn("[screen-recorder] Invalid narration container", narrDiag);
+        narrationOut = null;
+      } else if (narrationOut) {
+        await describeRecordingBlob(narrationOut);
+      }
+
+      if (levelSnapshot) {
+        console.info("[screen-recorder] narration levels", levelSnapshot);
       }
 
       if (video.size > 256 && !(await blobHasWebmHeader(video))) {
         console.warn("[screen-recorder] Video blob missing WebM header; size=", video.size);
       }
 
-      return { video, narration: narrationOut };
+      return { video, narration: narrationOut, levelSnapshot };
     })
     .catch((err) => {
       stopAllSessionTracks(session);

@@ -172,6 +172,15 @@ export async function POST(request: Request) {
       }
     }
 
+    const narrMetaRaw = form.get("narration_meta");
+    if (typeof narrMetaRaw === "string") {
+      try {
+        console.log("[process-recording] narration_meta", JSON.parse(narrMetaRaw));
+      } catch {
+        /* ignore */
+      }
+    }
+
     const draftSkillMd = buildDraftSkillMd(brief);
     const result = await processRecordingForSkill(
       videoPath,
