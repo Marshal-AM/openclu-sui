@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useAutoConnectWallet,
   useCurrentAccount,
   useCurrentWallet as useSuiWalletConnection,
   useDisconnectWallet,
@@ -20,10 +21,12 @@ const CurrentWalletContext = createContext<CurrentWalletContextValue | null>(nul
 export function CurrentWalletProvider({ children }: { children: React.ReactNode }) {
   const account = useCurrentAccount();
   const { connectionStatus } = useSuiWalletConnection();
+  const autoConnectStatus = useAutoConnectWallet();
   const { mutateAsync: disconnect } = useDisconnectWallet();
 
   const suiAddress = account?.address ?? null;
-  const ready = connectionStatus !== "connecting";
+  const ready =
+    connectionStatus !== "connecting" && autoConnectStatus !== "idle";
   const connected = !!suiAddress;
 
   const signOut = useCallback(async () => {

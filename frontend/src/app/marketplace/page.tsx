@@ -152,23 +152,25 @@ export default function MarketplacePage() {
 
   if (!packageId) {
     return (
-      <main className="mx-auto max-w-2xl p-6">
-        <h1 className="text-xl font-semibold">Skill marketplace</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Deploy the Move package and set <code>NEXT_PUBLIC_OPENCLU_SKILL_PACKAGE_ID</code> in{" "}
-          <code>.env</code>.
-        </p>
-      </main>
+      <div className="flex w-full flex-col gap-8">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Skill marketplace</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Deploy the Move package and set <code>NEXT_PUBLIC_OPENCLU_SKILL_PACKAGE_ID</code> in{" "}
+            <code>.env</code>.
+          </p>
+        </div>
+      </div>
     );
   }
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+    <div className="flex w-full flex-col gap-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Skill marketplace</h1>
-          <p className="text-sm text-muted-foreground">
-            Browse indexed listings (fast). Buy and decrypt still use Sui + Walrus + Seal.
+          <h1 className="text-2xl font-semibold tracking-tight">Skill marketplace</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Browse indexed listings. Buy and decrypt still use Sui + Walrus + Seal.
           </p>
         </div>
         <Button
@@ -304,6 +306,6 @@ export default function MarketplacePage() {
           isCreator={decryptAsCreator}
         />
       ) : null}
-    </main>
+    </div>
   );
 }

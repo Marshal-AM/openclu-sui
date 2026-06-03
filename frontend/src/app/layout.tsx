@@ -14,6 +14,10 @@ const themeInitScript = `(function(){try{var k='openclu-theme',t=localStorage.ge
 export const metadata: Metadata = {
   title: "OpenClu",
   description: "Record skills, publish on Walrus + Sui, and create agents",
+  icons: {
+    icon: [{ url: "/favicon.png", type: "image/png" }],
+    apple: [{ url: "/favicon.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAppWallet } from "@/components/auth/current-wallet";
+import { buildLoginRedirectPath } from "@/lib/auth-redirect";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -13,7 +14,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     if (!ready) return;
     if (pathname === "/login") return;
     if (!connected || !suiAddress) {
-      router.replace("/login");
+      router.replace(buildLoginRedirectPath(pathname));
     }
   }, [connected, pathname, ready, router, suiAddress]);
 

@@ -1,45 +1,58 @@
 "use client";
 
-import { ConnectButton } from "@mysten/dapp-kit";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { ConnectModal } from "@mysten/dapp-kit";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect } from "react";
 import { useAppWallet } from "@/components/auth/current-wallet";
 import { OpenCluLogo } from "@/components/OpenCluLogo";
+import { Button } from "@/components/ui/button";
+import { safeAuthRedirectPath } from "@/lib/auth-redirect";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { ready, connected, suiAddress } = useAppWallet();
+  const nextPath = safeAuthRedirectPath(searchParams.get("next"));
 
   useEffect(() => {
     if (ready && connected && suiAddress) {
-      router.replace("/record");
+      router.replace(nextPath);
     }
-  }, [connected, ready, router, suiAddress]);
+  }, [connected, nextPath, ready, router, suiAddress]);
+
+  const canLogin = ready && !connected;
 
   return (
     <main className="grid min-h-svh place-items-center bg-background p-6">
-      <section className="flex w-full max-w-md flex-col items-center gap-8">
-        <OpenCluLogo className="h-auto w-64 max-w-[80vw]" />
-        <p className="w-full text-center text-sm text-muted-foreground">
-          Connect the <strong>Sui</strong> account in your Phantom extension (not Ethereum or
-          Solana). Use the button below and choose Phantom in the wallet list.
-        </p>
-        <div className="flex w-full flex-col items-center gap-3">
-          {!ready ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
-          ) : connected ? (
-            <button
+      <section className="flex flex-col items-center gap-10">
+        <OpenCluLogo priority className="h-auto w-72 max-w-[80vw]" />
+        <ConnectModal
+          trigger={
+            <Button
               type="button"
-              className="rounded-full bg-primary px-6 py-3 text-sm font-medium text-primary-foreground"
-              onClick={() => router.push("/record")}
+              size="lg"
+              className="h-12 rounded-full px-8"
+              disabled={!canLogin}
             >
-              Continue to dashboard
-            </button>
-          ) : (
-            <ConnectButton connectText="Connect Phantom (Sui)" />
-          )}
-        </div>
+              {!ready || connected ? "Connecting..." : "Connect wallet"}
+            </Button>
+          }
+        />
       </section>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="grid min-h-svh place-items-center bg-background p-6">
+          <OpenCluLogo priority className="h-auto w-72 max-w-[80vw]" />
+        </main>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
   );
 }

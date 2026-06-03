@@ -593,18 +593,6 @@ export default function RecordPage() {
               />
             </Field>
           </div>
-          <Field>
-            <FieldLabel>Sale ends (drop window)</FieldLabel>
-            <Input
-              type="datetime-local"
-              value={saleEndLocal}
-              onChange={(e) => setSaleEndLocal(e.target.value)}
-              disabled={isRecording || isProcessing}
-            />
-            <FieldDescription>
-              Buyers can purchase and decrypt only until this time (on-chain + CDR). Default 30 days.
-            </FieldDescription>
-          </Field>
         </FieldGroup>
         <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
           {isRecording ? (
@@ -626,8 +614,7 @@ export default function RecordPage() {
           When sharing your screen, turn on <strong>Share system audio</strong> (or allow microphone
           access — we use your mic if system audio is unavailable). When you stop, the recording is
           analyzed with Groq (live screen snapshots + optional audio). The video file is only used
-          for transcription when possible — it is not stored on Walrus when you publish. Matching the OpenClu{" "}
-          <code className="text-xs">process.py</code> pipeline.
+          for transcription when possible — it is not stored on Walrus when you publish.
         </p>
       </Stage>
 

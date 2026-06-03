@@ -73,21 +73,23 @@ export default function PurchasedSkillsPage() {
 
   if (!packageId) {
     return (
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-xl font-semibold">My Purchased Skills</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Set <code>NEXT_PUBLIC_OPENCLU_SKILL_PACKAGE_ID</code> in <code>.env</code>.
-        </p>
+      <div className="flex w-full flex-col gap-8">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">My Purchased Skills</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Set <code>NEXT_PUBLIC_OPENCLU_SKILL_PACKAGE_ID</code> in <code>.env</code>.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="flex w-full flex-col gap-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">My Purchased Skills</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight">My Purchased Skills</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Skills you bought on the marketplace. Decrypt uses your on-chain purchase receipt + Walrus +
             Seal (no skill content is stored in Supabase).
           </p>
