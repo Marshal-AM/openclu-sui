@@ -65,6 +65,8 @@ export async function signAndExecuteTransactionWithWallet(args: {
 }): Promise<SignAndExecuteResult> {
   const { wallet, account, client, network, supportedIntents, transaction } = args;
 
+  assertWalletAccountChain(account, network);
+
   if (typeof transaction !== "string" && "setSenderIfNotSet" in transaction) {
     transaction.setSenderIfNotSet(account.address);
   }
@@ -121,6 +123,21 @@ export async function signAndExecuteTransactionWithWallet(args: {
   return { digest, method: "sign_then_rpc" };
 }
 
+function formatSuiAmount(mist: bigint): string {
+  return `${(Number(mist) / 1e9).toFixed(4)} SUI`;
+}
+
+/** Wallet-standard account must include the app's Sui chain (e.g. sui:testnet). */
+export function assertWalletAccountChain(account: WalletAccount, network: string): void {
+  const expected = `sui:${network}`;
+  if (account.chains.length > 0 && !account.chains.includes(expected)) {
+    throw new Error(
+      `Wallet account is not on Sui ${network} (active chains: ${account.chains.join(", ")}). ` +
+        `Switch the wallet to ${network} and reconnect.`,
+    );
+  }
+}
+
 /** Ensure wallet address has gas on the app RPC before signing. */
 export async function assertWalletGasBalance(
   client: SuiClient,
@@ -131,8 +148,30 @@ export async function assertWalletGasBalance(
   const totalMist = BigInt(totalBalance);
   if (totalMist < minMist) {
     throw new Error(
-      `Wallet balance is low (${(Number(totalMist) / 1e9).toFixed(4)} SUI). ` +
-        `Need at least ${(Number(minMist) / 1e9).toFixed(2)} SUI on this network for gas.`,
+      `Wallet balance is low (${formatSuiAmount(totalMist)}). ` +
+        `Need at least ${formatSuiAmount(minMist)} on this network for gas.`,
+    );
+  }
+  return { totalMist };
+}
+
+/** Purchase splits listing price from the gas coin — balance must cover both. */
+export async function assertWalletBalanceForPurchase(
+  client: SuiClient,
+  owner: string,
+  priceMist: bigint,
+): Promise<{ totalMist: bigint }> {
+  if (priceMist <= 0n) {
+    throw new Error("Listing price is invalid.");
+  }
+  const required = priceMist + MIN_GAS_MIST;
+  const { totalBalance } = await client.getBalance({ owner });
+  const totalMist = BigInt(totalBalance);
+  if (totalMist < required) {
+    throw new Error(
+      `Not enough SUI to buy this skill. Need ${formatSuiAmount(required)} ` +
+        `(${formatSuiAmount(priceMist)} price + ${formatSuiAmount(MIN_GAS_MIST)} gas). ` +
+        `Balance: ${formatSuiAmount(totalMist)}.`,
     );
   }
   return { totalMist };

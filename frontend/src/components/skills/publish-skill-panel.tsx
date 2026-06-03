@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { buildPurchaseSkillTx } from "@/lib/sui/move-tx";
 import {
   extractTransactionDigestFromError,
+  assertWalletBalanceForPurchase,
   assertWalletGasBalance,
   formatWalletSignError,
   signAndExecuteTransactionWithWallet,
@@ -428,21 +429,59 @@ export function PurchaseSkillButton({
     }
 
     setBuying(true);
+    const appNetwork = getSuiNetwork();
     try {
+      if (network !== appNetwork) {
+        throw new Error(
+          `App network mismatch: UI is on ${network} but NEXT_PUBLIC_SUI_NETWORK=${appNetwork}. ` +
+            "Restart dev server after changing .env and reconnect the wallet.",
+        );
+      }
+
+      const { totalMist } = await assertWalletBalanceForPurchase(
+        client,
+        account.address,
+        priceMist,
+      );
+      console.info(
+        `[purchase] pre-sign ok network=${appNetwork} balance=${(Number(totalMist) / 1e9).toFixed(4)} SUI price=${(Number(priceMist) / 1e9).toFixed(4)} SUI wallet=${currentWallet.name}`,
+      );
+
       const packageId = getOpencluSkillPackageId();
       const tx = buildPurchaseSkillTx({ packageId, listingId, priceMist });
-      const { digest } = await signAndExecuteTransactionWithWallet({
-        wallet: currentWallet,
-        account,
-        client,
-        network,
-        supportedIntents,
-        transaction: tx,
-      });
+      tx.setSenderIfNotSet(account.address);
+
+      let digest: string;
+      try {
+        const executed = await signAndExecuteTransactionWithWallet({
+          wallet: currentWallet,
+          account,
+          client,
+          network: appNetwork,
+          supportedIntents,
+          transaction: tx,
+        });
+        digest = executed.digest;
+        console.info(`[purchase] signed digest=${digest} method=${executed.method}`);
+      } catch (signErr) {
+        const recovered = formatWalletSignError(signErr, { network: appNetwork });
+        const digestFromErr =
+          signErr instanceof Error
+            ? extractTransactionDigestFromError(signErr.message)
+            : null;
+        if (digestFromErr) {
+          console.warn(`[purchase] wallet error but digest found: ${digestFromErr}`);
+          digest = digestFromErr;
+        } else {
+          throw new Error(recovered);
+        }
+      }
+
       await finishPurchase(digest);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      const digestFromError = extractTransactionDigestFromError(message);
+      let message = formatWalletSignError(err, { network: appNetwork });
+      const digestFromError =
+        err instanceof Error ? extractTransactionDigestFromError(err.message) : null;
       if (digestFromError) {
         try {
           await finishPurchase(digestFromError);
