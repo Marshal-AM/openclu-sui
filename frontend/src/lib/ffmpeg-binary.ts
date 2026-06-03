@@ -2,10 +2,7 @@ import { access, chmod, copyFile, constants } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import ffmpegStaticPath from "ffmpeg-static";
-
-const moduleDir = fileURLToPath(new URL(".", import.meta.url));
 
 let cachedBinary: string | null = null;
 
@@ -20,7 +17,6 @@ function bundledCandidates(): string[] {
     fromPkg,
     process.env.FFMPEG_BIN?.trim(),
     join(process.cwd(), "node_modules", "ffmpeg-static", name),
-    join(moduleDir, "..", "..", "node_modules", "ffmpeg-static", name),
   ];
   if (process.platform === "win32" && fromPkg && !fromPkg.endsWith(".exe")) {
     paths.push(`${fromPkg}.exe`);
