@@ -480,7 +480,7 @@ export function PurchaseSkillButton({
 
       await finishPurchase(digest);
     } catch (err) {
-      let message = formatWalletSignError(err, { network: appNetwork });
+      const message = formatWalletSignError(err, { network: appNetwork });
       const digestFromError =
         err instanceof Error ? extractTransactionDigestFromError(err.message) : null;
       if (digestFromError) {

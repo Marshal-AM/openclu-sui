@@ -401,8 +401,6 @@ function stopMediaRecorder(recorder: MediaRecorder, fallbackMime: string): Promi
   const mimeType = () => recorder.mimeType || fallbackMime;
 
   return new Promise((resolve, reject) => {
-    const buildBlob = (): Blob => new Blob(chunks, { type: mimeType() });
-
     recorder.ondataavailable = (event) => {
       chunks.push(event.data);
     };

@@ -59,12 +59,6 @@ type MetadataForm = {
   recordedAt: string;
 };
 
-function defaultSaleEndLocal(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 30);
-  return d.toISOString().slice(0, 16);
-}
-
 function Stage({
   step,
   title,
@@ -115,7 +109,6 @@ export default function RecordPage() {
   const [form, setForm] = useState<MetadataForm>(emptyForm);
   const [slugSuffix, setSlugSuffix] = useState(() => randomSlugSuffix());
   const [quitHref, setQuitHref] = useState<string | null>(null);
-  const [saleEndLocal, setSaleEndLocal] = useState(defaultSaleEndLocal);
   const [recorderStatus, setRecorderStatus] = useState<ScreenRecorderStatus>("idle");
   const [elapsedSec, setElapsedSec] = useState(0);
   const [captureWarning, setCaptureWarning] = useState<string | null>(null);

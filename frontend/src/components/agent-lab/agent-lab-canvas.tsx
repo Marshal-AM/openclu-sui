@@ -242,7 +242,7 @@ export function AgentLabCanvas() {
 
       tryAttachSkill(payload);
     },
-    [agentWorld.x, agentWorld.y, attachedSkills, tryAttachSkill],
+    [tryAttachSkill],
   );
 
   return (
