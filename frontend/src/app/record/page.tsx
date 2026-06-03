@@ -371,7 +371,8 @@ export default function RecordPage() {
       });
 
       toast.success("Recording started", {
-        description: "Choose a screen, window, or tab in the browser prompt. Click Stop when finished.",
+        description:
+          "Share a tab/window and enable system audio if possible.",
       });
     } catch (err) {
       cleanupSession();
@@ -492,6 +493,56 @@ export default function RecordPage() {
 
       {skillMd && processResult ? (
         <>
+          <section className="rounded-xl border bg-card p-5 shadow-sm">
+            <h2 className="text-base font-medium">Extraction sources</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The skill is built from your audio transcript plus on-screen text captured every{" "}
+              {FRAME_INTERVAL_SEC}s. If audio is empty, only frames and your brief were used.
+            </p>
+            {processResult.audioWarning ? (
+              <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
+                {processResult.audioWarning}
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-green-700 dark:text-green-400">
+                Audio transcribed ({processResult.transcript.segments.length} segment
+                {processResult.transcript.segments.length === 1 ? "" : "s"}).
+              </p>
+            )}
+            {processResult.transcript.full_text?.trim() ? (
+              <details className="mt-3">
+                <summary className="cursor-pointer text-sm font-medium">View transcript</summary>
+                <pre className="mt-2 max-h-48 overflow-auto rounded-lg border bg-muted/50 p-3 font-mono text-xs whitespace-pre-wrap">
+                  {processResult.transcript.full_text}
+                </pre>
+              </details>
+            ) : (
+              <p className="mt-3 text-sm text-muted-foreground">
+                No transcript text — speak your review comments while recording, or enable system
+                audio when sharing the screen.
+              </p>
+            )}
+            {processResult.frameAnnotations.length > 0 ? (
+              <details className="mt-3">
+                <summary className="cursor-pointer text-sm font-medium">
+                  View screen capture notes ({processResult.frameAnnotations.length} frames)
+                </summary>
+                <pre className="mt-2 max-h-48 overflow-auto rounded-lg border bg-muted/50 p-3 font-mono text-xs whitespace-pre-wrap">
+                  {processResult.frameAnnotations
+                    .map((a) => {
+                      const lines = [
+                        `[${(a.timestamp ?? 0).toFixed(1)}s] ${a.app} — ${a.action}`,
+                        a.details,
+                      ];
+                      if (a.visible_text?.trim()) lines.push(`Text: ${a.visible_text}`);
+                      if (a.file_references?.trim()) lines.push(`Refs: ${a.file_references}`);
+                      return lines.join("\n");
+                    })
+                    .join("\n\n")}
+                </pre>
+              </details>
+            ) : null}
+          </section>
           <section className="rounded-xl border bg-card p-5 shadow-sm">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-medium">Generated SKILL.md</h2>

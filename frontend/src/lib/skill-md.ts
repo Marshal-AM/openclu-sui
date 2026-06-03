@@ -26,6 +26,10 @@ export type FrameAnnotation = {
   app: string;
   action: string;
   details: string;
+  /** Verbatim or near-verbatim on-screen text (PR comments, code, UI labels). */
+  visible_text?: string;
+  /** File paths, line numbers, or code snippets visible on screen. */
+  file_references?: string;
 };
 
 export function parseTriggers(text: string): string[] {
@@ -69,11 +73,31 @@ ${brief.description.trim()}
 `;
 }
 
-export function mergeSkillMd(draftMd: string, generatedMd: string): string {
-  const existingFm = draftMd.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1];
-  if (!existingFm) return generatedMd;
+function parseFrontmatterBlock(md: string): { fm: string; body: string } | null {
+  const match = md.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
+  if (!match) return null;
+  return { fm: match[1]!, body: match[2]!.trim() };
+}
 
-  const genBodyMatch = generatedMd.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n([\s\S]*)/);
-  const genBody = genBodyMatch?.[1]?.trim() ?? generatedMd;
-  return `---\n${existingFm}\n---\n\n${genBody}\n`;
+function pickDescription(draftFm: string, generatedFm: string): string {
+  const fromGen = generatedFm.match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  if (fromGen && fromGen.length > 40 && !/involves the comments from a pr/i.test(fromGen)) {
+    return fromGen;
+  }
+  return draftFm.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? fromGen ?? "";
+}
+
+export function mergeSkillMd(draftMd: string, generatedMd: string): string {
+  const draft = parseFrontmatterBlock(draftMd);
+  const generated = parseFrontmatterBlock(generatedMd);
+  if (!draft) return generatedMd;
+  if (!generated) return draftMd;
+
+  const description = pickDescription(draft.fm, generated.fm);
+  const descYaml = description.includes(":") || description.includes('"')
+    ? `"${description.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+    : description;
+  const mergedFm = draft.fm.replace(/^description:\s*.+$/m, `description: ${descYaml}`);
+
+  return `---\n${mergedFm}\n---\n\n${generated.body}\n`;
 }

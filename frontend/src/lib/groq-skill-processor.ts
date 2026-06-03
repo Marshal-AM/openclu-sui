@@ -1,65 +1,79 @@
 import { createReadStream } from "node:fs";
+import { join } from "node:path";
 import Groq from "groq-sdk";
-import { probeMediaStreams, readJpegAsBase64 } from "@/lib/video-ffmpeg";
-import { mergeSkillMd } from "@/lib/skill-md";
+import {
+  extractAudioForTranscription,
+  probeMediaStreams,
+  readJpegAsBase64,
+} from "@/lib/video-ffmpeg";
+import { mergeSkillMd, type SkillBriefInput } from "@/lib/skill-md";
 import type { FrameAnnotation, Transcript } from "@/lib/skill-md";
 import type { FrameManifestEntry } from "@/lib/video-ffmpeg";
 
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 const TEXT_MODEL = "llama-3.3-70b-versatile";
-const FRAMES_PER_BATCH = 5;
+const FRAMES_PER_BATCH = 4;
 const MAX_FRAME_KB = 3500;
 
 const SKILL_EXTRACTION_PROMPT = `
-You are an expert at extracting structured skill knowledge from recordings of human experts.
+You extract SKILL.md for an AI agent from a screen recording where a human expert demonstrates concrete practices (often code review comments, fixes, or walkthroughs).
 
-You will receive:
-1. A full audio transcript (with timestamps) of someone demonstrating a skill
-2. Screen frame annotations showing what was happening on screen at each moment
+Recording intent (from the contributor — use as context only; do NOT copy verbatim if the demo shows more specific detail):
+Title: {brief_title}
+Contributor description: {brief_description}
 
-Your job is to extract a complete SKILL.md file for an AI agent to use.
+CRITICAL RULES:
+- The skill must capture SPECIFIC practices, rules, and examples shown or spoken in the recording — not a generic tutorial.
+- If the expert left PR/code review comments, lists each one with file/line when visible, the issue, and the recommended fix.
+- If the transcript or frames mention HTML, CSS, accessibility, tables, semantic elements, etc., those MUST appear as explicit rules in the skill body.
+- Do NOT invent generic "navigate to GitHub" steps unless the demo literally focused on navigation with no technical substance.
+- Prefer quoting or closely paraphrasing the expert's comments from the transcript and on-screen text.
 
-The SKILL.md format is:
+Required SKILL.md structure (after YAML frontmatter):
 ---
-name: <kebab-case-name>
-description: <one sentence: what this skill does and when to use it>
-triggers:
-  - "<natural language phrase that would invoke this skill>"
-  - "<another trigger phrase>"
+name: <kebab-case>
+description: <one sentence summarizing the SPECIFIC practices taught, not the recording process>
+triggers: ...
 expertise_source: human_recording
 recorded_at: <ISO date>
 ---
 
 ## Overview
-<2-3 sentences about what this skill accomplishes>
+2-3 sentences on the specific expertise being transferred.
+
+## Rules and standards (from demonstration)
+Bulleted list of every concrete rule/practice demonstrated. Each bullet: **Rule** — why it matters. Include file:line or code examples when available.
+
+## Demonstrated examples
+For each review comment or fix shown: location (file:line), what was wrong, what to do instead (use the expert's wording when possible).
 
 ## Prerequisites
-<bulleted list of what must be true before starting>
+Only what is actually needed for this skill.
 
 ## Steps
-<numbered list of steps. For each step that involves a decision, add a nested list of branches>
+Numbered steps an agent should follow to APPLY these rules (not vague "review the PR" only).
 
 ## Decision branches
-<key decision points and what to do in each case>
+Real decision points from the demo.
 
 ## Common mistakes
-<what the expert avoided or corrected>
+Mistakes the expert called out or corrected.
 
 ## Tools and context
-<what applications, commands, APIs, or resources are used>
+Apps/sites actually visible (e.g. GitHub PR, VS Code).
 
 ## Notes
-<tacit knowledge, tips, timing cues, anything the expert said that reveals their reasoning>
+Tacit knowledge from audio or screen text not covered above.
 
 ---
 
-Transcript:
+Full audio transcript (may be empty if no mic/system audio):
 {transcript}
 
-Frame annotations:
+Screen capture analysis (includes visible on-screen text when captured):
 {frame_annotations}
 
-Respond ONLY with the complete SKILL.md content, starting with ---.
+Respond ONLY with complete SKILL.md starting with ---.
 `;
 
 function getClient(): Groq {
@@ -118,14 +132,14 @@ export async function annotateFrames(
       {
         type: "text",
         text:
-          "You are analyzing screen recording frames from an expert demonstrating a skill. " +
-          "For EACH frame below, describe concisely: " +
-          "(1) what application/tool is visible, " +
-          "(2) what action appears to be happening, " +
-          "(3) any key UI elements, text, or data visible. " +
-          'Format your response as a JSON array with one object per frame: ' +
-          '[{"frame": 0, "app": "...", "action": "...", "details": "..."}]. ' +
-          "Return only the JSON array, no other text.",
+          "You analyze screen-recording frames of an expert demonstrating a skill (often a PR/code review). " +
+          "For EACH frame, extract:\n" +
+          "- app: application/site (e.g. GitHub, VS Code)\n" +
+          "- action: what the user is doing\n" +
+          "- details: summary of the screen\n" +
+          "- visible_text: ALL readable text verbatim or near-verbatim (PR review comments, code, labels). Use empty string if none.\n" +
+          "- file_references: file paths and line numbers visible (e.g. index.html:23-52). Use empty string if none.\n\n" +
+          'Return ONLY a JSON array: [{"frame":0,"app":"...","action":"...","details":"...","visible_text":"...","file_references":"..."}]',
       },
     ];
 
@@ -148,7 +162,7 @@ export async function annotateFrames(
       const response = await client.chat.completions.create({
         model: VISION_MODEL,
         messages: [{ role: "user", content: content as never }],
-        max_tokens: 1024,
+        max_tokens: 2048,
         temperature: 0.1,
       });
 
@@ -174,6 +188,8 @@ export async function annotateFrames(
           app: "unknown",
           action: "annotation failed",
           details: err instanceof Error ? err.message : String(err),
+          visible_text: "",
+          file_references: "",
         });
       }
     }
@@ -182,30 +198,48 @@ export async function annotateFrames(
   return annotations;
 }
 
+function formatFrameAnnotationsForPrompt(annotations: FrameAnnotation[]): string {
+  if (!annotations.length) return "(no frame annotations available)";
+  return annotations
+    .map((a) => {
+      const parts = [
+        `[t=${(a.timestamp ?? 0).toFixed(1)}s]`,
+        `app=${a.app ?? "?"}`,
+        `action=${a.action ?? "?"}`,
+        `details=${a.details ?? "?"}`,
+      ];
+      if (a.visible_text?.trim()) parts.push(`visible_text=${a.visible_text.trim()}`);
+      if (a.file_references?.trim()) parts.push(`file_references=${a.file_references.trim()}`);
+      return parts.join(" | ");
+    })
+    .join("\n");
+}
+
+function formatTranscriptForPrompt(transcript: Transcript): string {
+  if (transcript.full_text?.trim()) {
+    const lines = transcript.segments
+      .map((s) => `[${s.t_start.toFixed(1)}s–${s.t_end.toFixed(1)}s] ${s.text}`)
+      .join("\n");
+    return `FULL TEXT:\n${transcript.full_text.trim()}\n\nSEGMENTS:\n${lines || "(no segments)"}`;
+  }
+  return transcript.segments.length
+    ? transcript.segments
+        .map((s) => `[${s.t_start.toFixed(1)}s–${s.t_end.toFixed(1)}s] ${s.text}`)
+        .join("\n")
+    : "(no audio transcript — rely on screen visible_text from frames)";
+}
+
 export async function extractSkillMd(
   transcript: Transcript,
   frameAnnotations: FrameAnnotation[],
+  brief: SkillBriefInput,
 ): Promise<string> {
   const client = getClient();
 
-  const transcriptText =
-    transcript.segments
-      .map((s) => `[${s.t_start.toFixed(1)}s–${s.t_end.toFixed(1)}s] ${s.text}`)
-      .join("\n") || "(no audio transcript available)";
-
-  const framesText =
-    frameAnnotations
-      .map(
-        (a) =>
-          `[t=${(a.timestamp ?? 0).toFixed(1)}s] app=${a.app ?? "?"} | ` +
-          `action=${a.action ?? "?"} | details=${a.details ?? "?"}`,
-      )
-      .join("\n") || "(no frame annotations available)";
-
-  const prompt = SKILL_EXTRACTION_PROMPT.replace("{transcript}", transcriptText).replace(
-    "{frame_annotations}",
-    framesText,
-  );
+  const prompt = SKILL_EXTRACTION_PROMPT.replace("{brief_title}", brief.title.trim())
+    .replace("{brief_description}", brief.description.trim())
+    .replace("{transcript}", formatTranscriptForPrompt(transcript))
+    .replace("{frame_annotations}", formatFrameAnnotationsForPrompt(frameAnnotations));
 
   const response = await client.chat.completions.create({
     model: TEXT_MODEL,
@@ -213,12 +247,13 @@ export async function extractSkillMd(
       {
         role: "system",
         content:
-          "You extract structured AI agent skills from human recordings. Output only valid SKILL.md content.",
+          "You extract concrete, actionable agent skills from recordings. Never output generic filler. " +
+          "Always include specific rules and examples from the transcript and on-screen text.",
       },
       { role: "user", content: prompt },
     ],
     max_tokens: 4096,
-    temperature: 0.2,
+    temperature: 0.15,
   });
 
   return response.choices[0]?.message?.content?.trim() ?? "";
@@ -236,7 +271,10 @@ function emptyTranscript(): Transcript {
   return { full_text: "", segments: [] };
 }
 
-async function transcribeFromVideo(videoPath: string): Promise<{
+async function transcribeFromVideo(
+  videoPath: string,
+  workDir: string,
+): Promise<{
   transcript: Transcript;
   audioWarning: string | null;
 }> {
@@ -256,27 +294,36 @@ async function transcribeFromVideo(videoPath: string): Promise<{
     return {
       transcript: emptyTranscript(),
       audioWarning:
-        "No audio track detected. Enable “Also share system audio” when sharing your screen, " +
-        "or allow microphone access. Skill was built from screen frames and your brief.",
+        "No audio track detected. When sharing your screen, enable “Also share tab/system audio”, " +
+        "or allow microphone access. Skill was built from screen frames — speak your comments aloud for richer skills.",
     };
   }
 
   try {
     return { transcript: await transcribeAudio(videoPath), audioWarning: null };
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    return {
-      transcript: emptyTranscript(),
-      audioWarning: `Audio transcription skipped (${detail}). Skill was built from screen frames and your brief.`,
-    };
+  } catch (directErr) {
+    try {
+      const mp3Path = join(workDir, "audio-for-whisper.mp3");
+      await extractAudioForTranscription(videoPath, mp3Path);
+      const transcript = await transcribeAudio(mp3Path);
+      return { transcript, audioWarning: null };
+    } catch {
+      const detail =
+        directErr instanceof Error ? directErr.message : String(directErr);
+      return {
+        transcript: emptyTranscript(),
+        audioWarning: `Audio transcription failed (${detail}). Skill was built from screen frames only.`,
+      };
+    }
   }
 }
 
 export async function processRecordingForSkill(
   videoPath: string,
-  _workDir: string,
+  workDir: string,
   draftSkillMd: string,
   clientFrames: { manifest: FrameManifestEntry[]; framePaths: string[] },
+  brief: SkillBriefInput,
 ): Promise<ProcessRecordingResult> {
   let videoWarning: string | null = null;
   if (clientFrames.framePaths.length === 0) {
@@ -284,14 +331,14 @@ export async function processRecordingForSkill(
       "No screen frames were captured in the browser. SKILL.md used your title, description, and any audio only.";
   }
 
-  const { transcript, audioWarning } = await transcribeFromVideo(videoPath);
+  const { transcript, audioWarning } = await transcribeFromVideo(videoPath, workDir);
 
   const frameAnnotations =
     clientFrames.manifest.length > 0
       ? await annotateFrames(clientFrames.manifest, clientFrames.framePaths)
       : [];
 
-  const generatedMd = await extractSkillMd(transcript, frameAnnotations);
+  const generatedMd = await extractSkillMd(transcript, frameAnnotations, brief);
   const skillMd = mergeSkillMd(draftSkillMd, generatedMd);
 
   return { skillMd, transcript, frameAnnotations, audioWarning, videoWarning };

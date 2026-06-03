@@ -147,7 +147,18 @@ export async function POST(request: Request) {
     }
 
     const draftSkillMd = buildDraftSkillMd(brief);
-    const result = await processRecordingForSkill(videoPath, workDir, draftSkillMd, clientFrames);
+    const result = await processRecordingForSkill(
+      videoPath,
+      workDir,
+      draftSkillMd,
+      clientFrames,
+      brief,
+    );
+
+    console.log(
+      `[process-recording] transcript segments=${result.transcript.segments.length} ` +
+        `chars=${result.transcript.full_text.length} frames=${result.frameAnnotations.length}`,
+    );
     const recordingBuffer = await readFileBuffer(videoPath);
 
     return NextResponse.json({
