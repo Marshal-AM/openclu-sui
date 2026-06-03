@@ -1,6 +1,8 @@
 import { walrusEndpointsForNetwork } from "@/lib/sui/walrus-endpoints";
 
-export type SuiNetwork = "mainnet" | "testnet" | "devnet";
+import type { SuiNetwork } from "@/lib/sui/tatum-rpc";
+
+export type { SuiNetwork } from "@/lib/sui/tatum-rpc";
 
 export function getSuiNetwork(): SuiNetwork {
   const raw = process.env.NEXT_PUBLIC_SUI_NETWORK?.trim() || "testnet";
@@ -23,12 +25,7 @@ export function getWalrusConfig() {
   return walrusEndpointsForNetwork(network === "mainnet" ? "mainnet" : "testnet");
 }
 
-export function getSuiRpcUrl(): string {
-  const network = getSuiNetwork();
-  if (network === "mainnet") return "https://fullnode.mainnet.sui.io:443";
-  if (network === "devnet") return "https://fullnode.devnet.sui.io:443";
-  return "https://fullnode.testnet.sui.io:443";
-}
+export { getSuiRpcUrl, createSuiClient, createSuiRpcTransport } from "@/lib/sui/tatum-rpc";
 
 /** Convert human SUI amount to MIST (1 SUI = 1e9 MIST). */
 export function suiToMist(sui: string | number): bigint {

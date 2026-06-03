@@ -1,14 +1,14 @@
 "use client";
 
 import { createNetworkConfig, SuiClientProvider, WalletProvider } from "@mysten/dapp-kit";
-import { getFullnodeUrl } from "@mysten/sui/client";
 import { type ReactNode } from "react";
+import { createSuiClient, getSuiRpcUrl, type SuiNetwork } from "@/lib/sui/tatum-rpc";
 import "@mysten/dapp-kit/dist/index.css";
 
 const { networkConfig } = createNetworkConfig({
-  mainnet: { url: getFullnodeUrl("mainnet") },
-  testnet: { url: getFullnodeUrl("testnet") },
-  devnet: { url: getFullnodeUrl("devnet") },
+  mainnet: { url: getSuiRpcUrl("mainnet") },
+  testnet: { url: getSuiRpcUrl("testnet") },
+  devnet: { url: getSuiRpcUrl("devnet") },
 });
 
 const defaultNetwork =
@@ -17,7 +17,11 @@ const defaultNetwork =
 /** Connects external Sui wallets (Phantom, Slush, Suiet, …) via the Sui Wallet Standard. */
 export function SuiWalletProvider({ children }: { children: ReactNode }) {
   return (
-    <SuiClientProvider networks={networkConfig} defaultNetwork={defaultNetwork}>
+    <SuiClientProvider
+      networks={networkConfig}
+      defaultNetwork={defaultNetwork}
+      createClient={(network) => createSuiClient(network as SuiNetwork)}
+    >
       <WalletProvider
         autoConnect
         storageKey="openclu-sui-wallet"

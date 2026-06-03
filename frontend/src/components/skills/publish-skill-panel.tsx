@@ -42,6 +42,7 @@ import {
   type PublishPrepareRequest,
 } from "@/lib/sui/publish-skill-client";
 import { upsertSkillCatalogEntry } from "@/lib/supabase/catalog-client";
+import { createPublishSuiClient, publishFlowDelay } from "@/lib/sui/publish-rpc";
 import type { FrameAnnotation, Transcript } from "@/lib/skill-md";
 
 type PublishSkillPanelProps = {
@@ -114,12 +115,16 @@ export function PublishSkillPanel(props: PublishSkillPanelProps) {
         extraTags: props.extraTags,
       };
 
+      await publishFlowDelay(logger, "before Seal encryption");
+      const publishRpcClient = createPublishSuiClient();
       const encrypted = await encryptSkillPayload(
-        client,
+        publishRpcClient,
         sealIdentityPrefix,
         bundlePayload,
         logger,
       );
+
+      await publishFlowDelay(logger, "before Walrus upload and transaction build");
 
       logger.log("walrus", "Uploading Seal-encrypted skill bundle to Walrus", {
         detail: `${encrypted.encryptedBundle.length} bytes`,
@@ -160,6 +165,8 @@ export function PublishSkillPanel(props: PublishSkillPanelProps) {
         const detail = txErr instanceof Error ? txErr.message : String(txErr);
         throw new Error(`Could not load prepared Sui transaction: ${detail}`);
       }
+
+      await publishFlowDelay(logger, "before wallet signing");
 
       logger.log("wallet", "Requesting wallet signature…");
       if (!currentWallet || !isConnected || !account) {
@@ -234,7 +241,11 @@ export function PublishSkillPanel(props: PublishSkillPanelProps) {
       );
       setResultOpen(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Publish failed.";
+      let message = err instanceof Error ? err.message : "Publish failed.";
+      if (/429|too many requests/i.test(message)) {
+        message =
+          "Tatum RPC rate limit (429). Publish now waits between steps; try again in a minute or set NEXT_PUBLIC_PUBLISH_RPC_GAP_MS=8000 in .env.";
+      }
       const phase =
         /seal|encrypt|key server|typed array|DataView|BCS/i.test(message) ? "seal" : "sui";
       logger.log(phase, "Publish failed", { level: "error", detail: message });

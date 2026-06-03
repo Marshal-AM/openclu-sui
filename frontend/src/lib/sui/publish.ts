@@ -6,7 +6,7 @@ import {
   walrusRefFromHttp,
 } from "./entities";
 import { storeBytes, type FetchLike } from "./walrus-http";
-import { getSuiRpcUrl } from "@/lib/sui/config";
+import { createSuiClient } from "@/lib/sui/config";
 import { walrusEndpointsForNetwork } from "@/lib/sui/walrus-endpoints";
 import { SEAL_IDENTITY_BYTE_LENGTH } from "@/lib/seal/identity";
 
@@ -96,8 +96,7 @@ export async function preparePublishSkill(
   const tx = buildCreateRecordAndListTx(input.packageId, recordInput, listPrice);
 
   tx.setSender(input.ownerAddress);
-  const { SuiClient } = await import("@mysten/sui/client");
-  const client = new SuiClient({ url: getSuiRpcUrl() });
+  const client = createSuiClient();
   const bytes = await tx.build({ client });
   publishLog("Transaction built", `${bytes.length} bytes (awaiting wallet signature)`);
 

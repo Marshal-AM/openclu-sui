@@ -4,7 +4,6 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-// Prefer main package dir; on Windows if Move.lock is locked, copy sources to ../contracts/openclu_skill_publish (no lock) and publish there.
 const contractDir = resolve(frontendRoot, "../contracts/openclu_skill");
 const outDir = resolve(frontendRoot, "deployments");
 
@@ -32,7 +31,9 @@ if (!packageId) {
 const deployer = json.transaction?.data?.sender ?? "";
 const deployment = {
   network: "testnet",
-  rpcUrl: "https://fullnode.testnet.sui.io:443",
+  rpcUrl:
+    process.env.NEXT_PUBLIC_SUI_RPC_URL?.trim()?.replace(/\/$/, "") ||
+    "https://sui-testnet.gateway.tatum.io",
   deployer,
   publishedAt: new Date().toISOString(),
   packageId,

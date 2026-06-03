@@ -1,5 +1,4 @@
-import { SuiClient } from "@mysten/sui/client";
-import { getOpencluSkillPackageId, getSuiRpcUrl } from "@/lib/sui/config";
+import { createSuiClient, getOpencluSkillPackageId } from "@/lib/sui/config";
 import { listSkillPurchasesByOwner, type DecodedSkillPurchase } from "@/lib/sui/queries";
 import { getCatalogByListingIds } from "@/lib/supabase/catalog-by-listings";
 import { isSupabaseConfigured } from "@/lib/supabase/server";
@@ -19,7 +18,7 @@ export async function POST(request: Request) {
     }
 
     const packageId = getOpencluSkillPackageId();
-    const client = new SuiClient({ url: getSuiRpcUrl() });
+    const client = createSuiClient();
     const purchases = await listSkillPurchasesByOwner(client, packageId, buyerAddress, 100);
 
     const catalogMap = new Map<string, SkillCatalogCard>();

@@ -151,7 +151,7 @@ async function main() {
     process.env.TEST_OWNER_ADDRESS?.trim() ||
     "0x0000000000000000000000000000000000000000000000000000000000000001";
 
-  const { SuiClient } = await import("@mysten/sui/client");
+  const { createSuiClient } = await import("./lib/tatum-sui-client.mjs");
   const { SealClient } = await import("@mysten/seal");
   const { Transaction } = await import("@mysten/sui/transactions");
   const { BcsReader } = await import("@mysten/bcs");
@@ -170,9 +170,7 @@ async function main() {
   console.log("   ensureUint8Array + BcsReader OK");
 
   console.log("2) Seal encrypt…");
-  const rpc =
-    process.env.NEXT_PUBLIC_SUI_RPC_URL?.trim() || "https://fullnode.testnet.sui.io:443";
-  const sui = wrapSuiClientForSeal(new SuiClient({ url: rpc }));
+  const sui = wrapSuiClientForSeal(createSuiClient());
 
   const sealIdentity = crypto.getRandomValues(new Uint8Array(32));
   const sealIdentityHex = `0x${Buffer.from(sealIdentity).toString("hex")}`;

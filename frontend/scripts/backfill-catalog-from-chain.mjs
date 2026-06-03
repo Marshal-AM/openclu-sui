@@ -11,7 +11,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
-import { SuiClient } from "@mysten/sui/client";
+import { createSuiClient } from "./lib/tatum-sui-client.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
@@ -36,19 +36,13 @@ const packageId = process.env.NEXT_PUBLIC_OPENCLU_SKILL_PACKAGE_ID?.trim();
 const network = process.env.NEXT_PUBLIC_SUI_NETWORK?.trim() || "testnet";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-const rpc =
-  process.env.NEXT_PUBLIC_SUI_RPC_URL?.trim() ||
-  (network === "mainnet"
-    ? "https://fullnode.mainnet.sui.io:443"
-    : "https://fullnode.testnet.sui.io:443");
-
 if (!packageId || !supabaseUrl || !serviceKey) {
   console.error("Missing NEXT_PUBLIC_OPENCLU_SKILL_PACKAGE_ID, SUPABASE_URL, or SERVICE_ROLE_KEY");
   process.exit(1);
 }
 
 const supabase = createClient(supabaseUrl, serviceKey);
-const sui = new SuiClient({ url: rpc });
+const sui = createSuiClient(network);
 
 function objectFields(item) {
   return item?.data?.content?.fields ?? null;

@@ -176,7 +176,7 @@ export function AgentLabChat() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder='Try: "What skills do I have?" or "Find a skill for screen recording"'
+          placeholder='Try purchasing a skill or use one'
           rows={2}
           className="min-h-[4rem] resize-none"
           disabled={sending}
