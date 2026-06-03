@@ -129,7 +129,7 @@ function formatSuiAmount(mist: bigint): string {
 
 /** Wallet-standard account must include the app's Sui chain (e.g. sui:testnet). */
 export function assertWalletAccountChain(account: WalletAccount, network: string): void {
-  const expected = `sui:${network}`;
+  const expected = `sui:${network}` as `${string}:${string}`;
   if (account.chains.length > 0 && !account.chains.includes(expected)) {
     throw new Error(
       `Wallet account is not on Sui ${network} (active chains: ${account.chains.join(", ")}). ` +
