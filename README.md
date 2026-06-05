@@ -52,8 +52,8 @@
 
 | Resource | Link |
 |----------|------|
-| **Demo video** | Coming soon |
-| **Pitch deck** | [Canva deck](https://canva.link/5o7qyzlmv6g0fum) |
+| **Demo video** | [View Here](https://youtu.be/4wAhp2MTCtk) |
+| **Pitch deck** | [View Here](https://canva.link/5o7qyzlmv6g0fum) |
 | **Live app (Try out now!)** | [https://opeclu-sui.vercel.app](https://opeclu-sui.vercel.app) |
 
 ### Deployed Package (Sui Testnet)
@@ -94,11 +94,19 @@ End-to-end walkthrough of the live app on **Sui testnet**. You need a funded tes
 
 3. **Record a skill** — Open **Record** (`/record`). Fill in title and description, then click **Start recording**. Share your screen and narrate any walkthrough (e.g. using an app, changing a PC setting). Click **Stop recording** when done; wait for extraction to finish and review the generated **SKILL.md**.
 
+<img width="1208" height="750" alt="Screenshot 2026-06-06 at 3 01 43 AM" src="https://github.com/user-attachments/assets/6bf3343a-1991-4663-8180-69182ff5ef7a" />
+
 4. **Publish to marketplace** — Scroll to **Publish to Walrus + Sui**, set a list price (default **0.1 SUI**), and click **Publish skill on-chain**. Approve the wallet popup — the flow Seal-encrypts the bundle, uploads to Walrus, and creates `SkillRecord` + `SkillListing` on-chain. Confirm success in the result modal.
+
+<img width="1208" height="750" alt="Screenshot 2026-06-06 at 3 02 44 AM" src="https://github.com/user-attachments/assets/39ae0608-f5e0-4b5c-ab91-1c23f061e763" />
 
 5. **Purchase a skill** — Open **Marketplace** (`/marketplace`), **Browse** tab. Pick a listing you do **not** own (you cannot buy your own skill), click **Purchase**, and approve the `purchase_skill` transaction. The card switches to **Owned** when the receipt is on-chain.
 
+<img width="1208" height="750" alt="Screenshot 2026-06-06 at 3 03 18 AM" src="https://github.com/user-attachments/assets/93953d4c-68b7-47a6-a9e3-448f5e20dcbe" />
+
 6. **Test in Agent Lab** — Open **Agent lab** (`/create-agent`). In the skills palette, click **Decrypt** on your purchase, sign the Seal session message, then **drag the skill onto the canvas** agent node. Use the chat panel to ask the agent to perform a task — it loads your decrypted `SKILL.md` as context.
+
+<img width="1208" height="750" alt="Screenshot 2026-06-06 at 3 03 37 AM" src="https://github.com/user-attachments/assets/0114f2f6-7ecd-4976-a9d6-28492876cd60" />
 
 7. **Discover skills via chat** — In Agent lab chat, ask something like *"Find a skill for screen recording"* or *"Find a skill for debugging deployments."* The agent runs a semantic marketplace search and shows a skill offer card — purchase, decrypt, and attach from there to test it on the canvas.
 
@@ -265,6 +273,8 @@ flowchart TB
 ---
 
 ## Complete Pipeline Flow
+
+<img width="1474" height="573" alt="Screenshot 2026-06-05 at 3 46 12 PM" src="https://github.com/user-attachments/assets/1953bc72-e0e0-4598-ab75-52cd94229bd3" />
 
 ### Phase 1 — Capture and extract (Record)
 
