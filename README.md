@@ -10,6 +10,7 @@
 
 - [Executive Summary](#executive-summary)
 - [Important Links](#important-links)
+- [How to Demo](#how-to-demo)
 - [Introduction](#introduction)
 - [The Problem We Solve](#the-problem-we-solve)
 - [Example User: Priya the DevOps Engineer](#example-user-priya-the-devops-engineer)
@@ -49,6 +50,12 @@
 
 ## Important Links
 
+| Resource | Link |
+|----------|------|
+| **Demo video** | Coming soon |
+| **Pitch deck** | [Canva deck](https://canva.link/5o7qyzlmv6g0fum) |
+| **Live app (Try out now!)** | [https://opeclu-sui.vercel.app](https://opeclu-sui.vercel.app) |
+
 ### Deployed Package (Sui Testnet)
 
 | Artifact | Value |
@@ -74,6 +81,26 @@
 | Move contracts | [`contracts/openclu_skill/sources/`](contracts/openclu_skill/sources/) |
 | Agent Lab | [`frontend/src/lib/agent-lab/groq-agent.ts`](frontend/src/lib/agent-lab/groq-agent.ts) |
 | Marketplace | [`frontend/src/app/marketplace/page.tsx`](frontend/src/app/marketplace/page.tsx) |
+
+---
+
+## How to Demo
+
+End-to-end walkthrough of the live app on **Sui testnet**. You need a funded testnet wallet (gas + listing/purchase SUI). Phantom is supported, but we **recommend Slush** — Phantom has had intermittent issues with transaction signing in our tests.
+
+1. **Open the app** — Go to [https://opeclu-sui.vercel.app](https://opeclu-sui.vercel.app). You are redirected to `/login` until a wallet is connected.
+
+2. **Connect wallet** — Click **Connect wallet**, choose **Slush** (or another Sui wallet), and confirm the wallet is on **testnet** with enough SUI for gas and purchases.
+
+3. **Record a skill** — Open **Record** (`/record`). Fill in title and description, then click **Start recording**. Share your screen and narrate any walkthrough (e.g. using an app, changing a PC setting). Click **Stop recording** when done; wait for extraction to finish and review the generated **SKILL.md**.
+
+4. **Publish to marketplace** — Scroll to **Publish to Walrus + Sui**, set a list price (default **0.1 SUI**), and click **Publish skill on-chain**. Approve the wallet popup — the flow Seal-encrypts the bundle, uploads to Walrus, and creates `SkillRecord` + `SkillListing` on-chain. Confirm success in the result modal.
+
+5. **Purchase a skill** — Open **Marketplace** (`/marketplace`), **Browse** tab. Pick a listing you do **not** own (you cannot buy your own skill), click **Purchase**, and approve the `purchase_skill` transaction. The card switches to **Owned** when the receipt is on-chain.
+
+6. **Test in Agent Lab** — Open **Agent lab** (`/create-agent`). In the skills palette, click **Decrypt** on your purchase, sign the Seal session message, then **drag the skill onto the canvas** agent node. Use the chat panel to ask the agent to perform a task — it loads your decrypted `SKILL.md` as context.
+
+7. **Discover skills via chat** — In Agent lab chat, ask something like *"Find a skill for screen recording"* or *"Find a skill for debugging deployments."* The agent runs a semantic marketplace search and shows a skill offer card — purchase, decrypt, and attach from there to test it on the canvas.
 
 ---
 
