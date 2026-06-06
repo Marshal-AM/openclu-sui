@@ -1,4 +1,4 @@
-# OpenClu
+# OpenClu 
 
 ## On-chain Skill Capture & Marketplace
 
